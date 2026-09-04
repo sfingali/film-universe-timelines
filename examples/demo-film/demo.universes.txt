@@ -1,0 +1,30 @@
+# demo.universes.txt — synthetic 4-lane film, 30 scenes, to exercise every feature
+# (this file is the film-specific one; everything else in the repo is generic)
+
+lanes: TOWER, MIDNIGHT, STATION, OPEN
+label TOWER: TOWER
+label MIDNIGHT: MIDNIGHT
+label STATION: STATION
+label OPEN: OPEN
+
+# worlds that pre-date the protagonist (drawn from the top of the chart)
+already-running: TOWER, STATION
+
+# his scenes per world
+TOWER: 24-30
+MIDNIGHT: 15-23
+STATION: 8-14
+OPEN: 1-7
+
+# crossings in story order: OPEN -> STATION -> MIDNIGHT -> TOWER
+pulls: 7, 14, 23
+
+# a split that is not a crossing
+split: 2
+
+key: OPEN: 3, 5
+key: STATION: 10
+key: MIDNIGHT: 18
+key: TOWER: 27
+
+thread: THE THREAD: OPEN → STATION → MIDNIGHT → TOWER — THE LAST JUMP

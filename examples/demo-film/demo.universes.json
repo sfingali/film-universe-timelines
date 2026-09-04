@@ -1,0 +1,244 @@
+{
+  "_doc": "COMPILED from demo.universes.txt via timeline_compile.py. Do not hand-edit; edit the allocation file and recompile.",
+  "meta": {
+    "title": "THE MIDNIGHT TOWER — One Man's Story",
+    "subtitle": "Split circles carry the scene number of the split · * = already running, ancestry off-chart",
+    "thread_label": "THE THREAD: OPEN → STATION → MIDNIGHT → TOWER — THE LAST JUMP",
+    "footer": "Compiled from a scene-allocation file — edit that file, then recompile.",
+    "canvas": [
+      2800,
+      3400
+    ]
+  },
+  "lanes": [
+    {
+      "id": "TOWER",
+      "label": "TOWER"
+    },
+    {
+      "id": "MIDNIGHT",
+      "label": "MIDNIGHT"
+    },
+    {
+      "id": "STATION",
+      "label": "STATION"
+    },
+    {
+      "id": "OPEN",
+      "label": "OPEN"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "U1",
+      "lane": "OPEN",
+      "title": "OPENING — THE OPENING UNIVERSE",
+      "body": "Where the story begins."
+    }
+  ],
+  "lanes_content": {
+    "TOWER": [
+      {
+        "laneborn": {
+          "from_split": null,
+          "chip": "TOWER — ALREADY RUNNING",
+          "note": "this world began long before the chart"
+        }
+      },
+      {
+        "join": "join-23"
+      },
+      {
+        "beat": "scene 25",
+        "cite": "#25"
+      },
+      {
+        "beat": "scene 26",
+        "cite": "#26"
+      },
+      {
+        "beat": "scene 27",
+        "cite": "#27"
+      },
+      {
+        "beat": "scene 28",
+        "cite": "#28"
+      }
+    ],
+    "MIDNIGHT": [
+      {
+        "join": "join-14"
+      },
+      {
+        "beat": "scene 16",
+        "cite": "#16"
+      },
+      {
+        "beat": "scene 17",
+        "cite": "#17"
+      },
+      {
+        "beat": "scene 18",
+        "cite": "#18"
+      },
+      {
+        "beat": "scene 19",
+        "cite": "#19"
+      },
+      {
+        "split": "23"
+      },
+      {
+        "stub": "stub-23"
+      },
+      {
+        "chip": "MIDNIGHT — RUNS ON",
+        "dim": true
+      },
+      {
+        "abandon": 140
+      }
+    ],
+    "STATION": [
+      {
+        "laneborn": {
+          "from_split": null,
+          "chip": "STATION — ALREADY RUNNING",
+          "note": "this world began long before the chart"
+        }
+      },
+      {
+        "join": "join-7"
+      },
+      {
+        "beat": "scene 9",
+        "cite": "#9"
+      },
+      {
+        "beat": "scene 10",
+        "cite": "#10"
+      },
+      {
+        "beat": "scene 11",
+        "cite": "#11"
+      },
+      {
+        "beat": "scene 12",
+        "cite": "#12"
+      },
+      {
+        "split": "14"
+      },
+      {
+        "stub": "stub-14"
+      },
+      {
+        "chip": "STATION — RUNS ON",
+        "dim": true
+      },
+      {
+        "abandon": 140
+      }
+    ],
+    "OPEN": [
+      {
+        "node": "U1"
+      },
+      {
+        "beat": "scene 2",
+        "cite": "#2"
+      },
+      {
+        "split": "2"
+      },
+      {
+        "beat": "scene 3",
+        "cite": "#3"
+      },
+      {
+        "beat": "scene 4",
+        "cite": "#4"
+      },
+      {
+        "beat": "scene 5",
+        "cite": "#5"
+      },
+      {
+        "split": "7"
+      },
+      {
+        "stub": "stub-7"
+      },
+      {
+        "chip": "OPEN — RUNS ON",
+        "dim": true
+      },
+      {
+        "abandon": 140
+      }
+    ]
+  },
+  "splits": {
+    "7": {
+      "letter": "7",
+      "caption": "He jumps the turnstile — the worlds split"
+    },
+    "14": {
+      "letter": "14",
+      "caption": "He takes the pill — the worlds split"
+    },
+    "23": {
+      "letter": "23",
+      "caption": "He fires the flare — the worlds split"
+    },
+    "2": {
+      "letter": "2",
+      "caption": "The tower clock runs backwards — the worlds split"
+    }
+  },
+  "stubs": {
+    "stub-7": {
+      "title": "7B — HE DIES",
+      "sub": "the tine where he dies at split #7"
+    },
+    "stub-14": {
+      "title": "14B — HE DIES",
+      "sub": "the tine where he dies at split #14"
+    },
+    "stub-23": {
+      "title": "23B — HE DIES",
+      "sub": "the tine where he dies at split #23"
+    }
+  },
+  "joins": {
+    "join-7": {
+      "from_split": "7",
+      "to_lane": "STATION",
+      "side": "left",
+      "label": "he enters STATION"
+    },
+    "join-14": {
+      "from_split": "14",
+      "to_lane": "MIDNIGHT",
+      "side": "left",
+      "label": "he enters MIDNIGHT"
+    },
+    "join-23": {
+      "from_split": "23",
+      "to_lane": "TOWER",
+      "side": "left",
+      "label": "he enters TOWER"
+    }
+  },
+  "thread": [
+    "U1",
+    "join-7",
+    "join-14",
+    "join-23",
+    "ENDING"
+  ],
+  "legend": [
+    "Every crossing splits the world: the tine we follow continues · the other tine he dies.",
+    "Split circles show the SCENE of the split. * = already running, ancestry off-chart."
+  ]
+}

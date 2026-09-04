@@ -1,0 +1,565 @@
+#!/usr/bin/env python3
+"""universe_graph.py — declarative render engine for film universe charts.
+Story lives in JSON; geometry is COMPUTED; styles are params. Film-agnostic:
+nothing here knows the movie. v4 layout core = fixed-point restack (see history below).
+
+v4 — layout core rewritten as a FIXED-POINT RESTACK (audit 2026-09-03 + render QA):
+  * no two-pass provisional/shift: every pass stacks lanes in order, placing joins
+    IN-FLOW at yj = max(stack cursor + clearance, source_split_y + JOIN_DROP),
+    then content continues below the join dot. Iterate until stable (≤8 passes).
+  * => join connectors always run DOWN from the source split then across;
+    => a lane's post-join content always sits BELOW the join (narrative order);
+    => lane cursors and canvas height are always consistent (nothing clipped).
+  * join horizontals DODGE text on lanes they cross (shift down to clear band).
+  * join labels auto-flip right when they would clip off the left edge.
+  * vertical rhythm BREATHE-scaled (airier, closer to the approved v5 hand-built look).
+  * abandon tails always render (world "runs on" even after the thread departs).
+  * engine VALIDATES the JSON first: joins must live in to_lane, thread must resolve,
+    unknown ids fail loudly. Story errors are JSON errors, not drawing bugs.
+Connector grammar (approved v5 look):
+  lane pre-history: grey from lane top (already-running lanes) or from birth split (born lanes)
+  thread (green):   the film's path; a split with an outgoing join ENDS the carry
+  join draw:        vertical down the SOURCE lane from the split, horizontal across,
+                    green dot on the target lane, green continues below the dot
+  deaths:           diagonal from split to stub box right of the lane, X/square cap
+Usage: python3 universe_graph.py graph.json [-o out.png] [--style classic|weight|dash|tape]
+"""
+import json, math, os, re, sys, argparse
+from PIL import Image, ImageDraw, ImageFont
+
+def _find_font(name):
+    for base in ("/usr/share/fonts/truetype/dejavu",
+                 os.path.join(os.path.dirname(os.path.abspath(__file__)), "fonts"),
+                 os.path.expanduser("~/.fonts")):
+        p = os.path.join(base, name)
+        if os.path.exists(p):
+            return p
+    return None
+
+def F(sz, bold=False, mono=False):
+    n = "DejaVuSansMono.ttf" if mono else ("DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf")
+    p = _find_font(n)
+    if p:
+        return ImageFont.truetype(p, sz)
+    return ImageFont.load_default()
+
+def wrap_fn(dd):
+    def tw(t, f): return dd.textlength(t, font=f)
+    def wrap(t, f, maxw):
+        words, lines, cur = t.split(), [], ""
+        for w0 in words:
+            trial = (cur+" "+w0).strip()
+            if tw(trial, f) <= maxw: cur = trial
+            else:
+                if cur: lines.append(cur)
+                cur = w0
+        if cur: lines.append(cur)
+        return lines
+    return tw, wrap
+
+_SMALL = {"a", "an", "and", "as", "at", "but", "by", "for", "in", "of", "on", "or",
+          "the", "to", "with", "from", "into"}
+_PROTECT = set()   # all-caps tokens preserved verbatim (lane ids/labels — acronyms)
+
+def _cap_word(w):
+    m = re.match(r"^([^A-Za-z]*)([A-Za-z][A-Za-z']*)(.*)$", w)
+    if not m:
+        return w
+    pre, core, suf = m.groups()
+    core = core[0].upper() + core[1:].lower()
+    if suf.startswith("'") and len(suf) >= 2:
+        suf = "'" + suf[1].upper() + suf[2:]
+    return pre + core + suf
+
+def tc(s):
+    """House rule: chart lettering reads as hand-lettered — title-case ALL-CAPS strings."""
+    if not isinstance(s, str) or not s or not s.isupper():
+        return s
+    words = s.split()
+    out = []
+    for i, w in enumerate(words):
+        if w.upper() in _PROTECT:
+            out.append(w)
+            continue
+        lw = w.lower().strip("—-·,.:;()[]")
+        prev_break = i > 0 and s.split()[i-1].strip("·,.:;()[]") in ("—", "--", "-", "/")
+        if 0 < i < len(words) - 1 and lw in _SMALL and not prev_break:
+            out.append(w.lower())
+        else:
+            out.append(_cap_word(w))
+    return " ".join(out)
+
+# ---------------- validation ----------------
+def validate(g):
+    errs = []
+    lane_ids = [l["id"] for l in g.get("lanes", [])]
+    if not lane_ids: errs.append("lanes: empty")
+    lc = g.get("lanes_content", {})
+    for lid in lc:
+        if lid not in lane_ids: errs.append(f"lanes_content: unknown lane '{lid}'")
+    node_ids = {n_["id"] for n_ in g.get("nodes", [])}
+    stubs = g.get("stubs", {})
+    splits = g.get("splits", {})
+    joins = g.get("joins", {})
+    join_lanes = {}
+    for lid in lane_ids:
+        for it in lc.get(lid, []):
+            k = next(iter(it))
+            if k == "node" and (it[k] not in node_ids):
+                errs.append(f"{lid}: unknown node '{it[k]}'")
+            elif k == "stub" and (it[k] not in stubs):
+                errs.append(f"{lid}: unknown stub '{it[k]}'")
+            elif k == "split" and (it[k] not in splits):
+                errs.append(f"{lid}: unknown split '{it[k]}'")
+            elif k == "join":
+                jid = it[k]
+                if jid not in joins: errs.append(f"{lid}: unknown join '{jid}'")
+                else:
+                    prev = join_lanes.setdefault(jid, lid)
+                    if prev != lid:
+                        errs.append(f"{lid}: join '{jid}' listed in multiple lanes "
+                                    f"('{prev}' and '{lid}') — place it only in to_lane")
+    for jid, j in joins.items():
+        if j["to_lane"] not in lane_ids:
+            errs.append(f"joins.{jid}: unknown to_lane '{j['to_lane']}'")
+        elif join_lanes.get(jid) not in (None, j["to_lane"]):
+            errs.append(f"joins.{jid}: listed in lane '{join_lanes[jid]}' but to_lane is "
+                        f"'{j['to_lane']}' — place the join item only in to_lane")
+        if j["from_split"] not in splits:
+            errs.append(f"joins.{jid}: unknown from_split '{j['from_split']}'")
+    for lb_lane in lane_ids:
+        for it in lc.get(lb_lane, []):
+            k = next(iter(it))
+            if k == "laneborn":
+                fs = it[k].get("from_split")
+                if fs is not None and fs not in splits:
+                    errs.append(f"{lb_lane}.laneborn: unknown from_split '{fs}'")
+    known = set(node_ids) | set(splits) | set(joins) | {"ENDING"}
+    for t in g.get("thread", []):
+        if t not in known: errs.append(f"thread: unknown element '{t}'")
+    return errs
+
+# ---------------- layout + draw ----------------
+def build(g, style="classic"):
+    global _PROTECT
+    _PROTECT = set()
+    for l in g.get("lanes", []):
+        _PROTECT.add(str(l.get("id", "")).upper())
+        lab = str(l.get("label", "")).strip()
+        if lab and lab.isupper() and len(re.findall(r"[A-Za-z0-9*']+", lab)) == 1:
+            _PROTECT.add(re.findall(r"[A-Za-z0-9*']+", lab)[0].upper())
+    W = max(int(g["meta"]["canvas"][0]), 2400)
+    MARGIN, LANE_GAP = 60, 100
+    lane_ids = [l["id"] for l in g["lanes"]]
+    n = len(lane_ids)
+    LANE_W = min(560, (W - 2*MARGIN - (n-1)*LANE_GAP)//n)
+    total = n*LANE_W + (n-1)*LANE_GAP
+    x0 = (W-total)//2
+    X = {lid: x0 + i*(LANE_W+LANE_GAP) for i, lid in enumerate(lane_ids)}
+    Y_TOP = 230
+
+    probe = Image.new("RGB",(10,10)); dd = ImageDraw.Draw(probe)
+    tw, wrap = wrap_fn(dd)
+    f_body=F(18); f_node=F(20,bold=True); f_cap=F(17,bold=True); f_seg=F(16,bold=True)
+    f_chip=F(17,bold=True); f_note=F(18); f_beat=F(16); f_cite=F(14,mono=True)
+
+    nodes = {n_["id"]: n_ for n_ in g.get("nodes", [])}
+    stubs = g.get("stubs", {})
+    raw = {lid: list(g.get("lanes_content", {}).get(lid, [])) for lid in lane_ids}
+
+    B = 1.35          # vertical breathing factor
+    JOIN_DROP = 120   # px below the source split center for the join horizontal
+    SLOTS = dict(beat=round(40*B), segment=round(54*B), chip=round(46*B),
+                 split=round(132*B), join_after=round(118*B),
+                 laneborn=round(116*B), node_gap=round(26*B), stub_gap=round(16*B)+10,
+                 ending_gap=round(30*B), abandon_gap=round(26*B))
+
+    def measure(kind, v, lid):
+        """(w, h) of the item's visual box at cx (x-center of its lane)."""
+        cx = X[lid]
+        if kind == "node":
+            nv = nodes[v] if isinstance(v, str) else v
+            lines = wrap(nv["body"], f_body, LANE_W-30)
+            return LANE_W, 12+28+22*len(lines)+(22 if nv.get("cite") else 0)+12
+        if kind == "stub":
+            sv = stubs[v] if isinstance(v, str) else v
+            lines = wrap(sv.get("sub",""), f_body, 390)
+            return 400, 12+28+22*len(lines)+12
+        if kind == "ending":
+            lines = wrap(v["body"], f_body, 640)
+            return 660, 12+28+22*len(lines)+(22 if v.get("cite") else 0)+12
+        return 0, 0
+
+    # -------- fixed-point restack --------
+    prev_key = None
+    prev_splits = {}          # split id -> cy from the PREVIOUS pass (first pass: none)
+    for iteration in range(8):
+        lane_y = {lid: Y_TOP for lid in lane_ids}
+        P = []
+        split_pos = {}          # split id -> (lane, cx, cy) THIS pass
+        for lid in lane_ids:
+            for it in raw[lid]:
+                k = next(iter(it)); v = it[k]; cx = X[lid]
+                if k == "join":
+                    jid = v; j = g["joins"][jid]
+                    yj = lane_y[lid] + 62
+                    if j["from_split"] in split_pos:          # source placed this pass
+                        yj = max(yj, split_pos[j["from_split"]][2] + JOIN_DROP)
+                    elif j["from_split"] in prev_splits:      # fall back to prev pass pos
+                        yj = max(yj, prev_splits[j["from_split"]][2] + JOIN_DROP)
+                    # dodge ANY placed item whose box/text intersects the horizontal run
+                    (slx, sxx, syy) = split_pos.get(j["from_split"], (lid, cx, yj-JOIN_DROP))
+                    lo_x, hi_x = sorted((sxx, X[lid]))
+                    def q_extent(q):
+                        """visual x-extent + y-extent of a placed item"""
+                        k2 = q["kind"]; qx, ql = q["cx"], q["w"]
+                        if k2 == "node":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
+                        if k2 == "stub":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
+                        if k2 == "ending":  return (qx, qx+ql, q["y"], q["y"]+q["h"])
+                        if k2 == "split":
+                            sl2 = g["splits"][q["v"]]
+                            return (qx-30, qx+44+tw(sl2["caption"].split("\n")[0], f_cap),
+                                    q["y"]-30, q["y"]+30)
+                        if k2 == "chip":
+                            cv = q["v"] if isinstance(q["v"], dict) else {"chip": q["v"]}
+                            return (qx+16, qx+36+tw(cv["chip"], f_chip), q["y"], q["y"]+34)
+                        if k2 == "segment":
+                            tv = q["v"] if isinstance(q["v"], str) else q["v"].get("segment","")
+                            return (qx+16, qx+36+tw(tv, f_seg), q["y"], q["y"]+34)
+                        if k2 == "beat":
+                            bv = q["v"] if isinstance(q["v"], dict) else {"beat": q["v"]}
+                            txt2 = bv["beat"]+(f" ({bv['cite']})" if bv.get("cite") else "")
+                            return (qx+16, qx+16+tw(txt2, f_beat), q["y"], q["y"]+34)
+                        if k2 == "laneborn":
+                            return (qx+16, qx+16+min(560, LANE_W-40)+30, q["y"], q["y"]+96)
+                        return (qx-3, qx+3, q["y"], q["y"]+(q["h"] or 0))   # abandon tail
+                    changed = True
+                    while changed:
+                        changed = False
+                        for q in P:
+                            if q["kind"] in ("join",): continue
+                            x0q, x1q, y0q, y1q = q_extent(q)
+                            if x1q < lo_x or x0q > hi_x: continue        # x doesn't overlap the run
+                            if y0q-14 <= yj <= y1q+14:
+                                yj = y1q + 24; changed = True
+                    put_join = dict(kind="join", v=jid, lane=lid, cx=cx, y=yj, w=0, h=0)
+                    P.append(put_join)
+                    lane_y[lid] = max(lane_y[lid], yj) + SLOTS["join_after"]
+                elif k == "node":
+                    w,h = measure("node", v, lid)
+                    nv = nodes[v] if isinstance(v, str) else v
+                    P.append(dict(kind="node", v=nv, lane=lid, cx=cx, y=lane_y[lid], w=w, h=h))
+                    lane_y[lid] += h + SLOTS["node_gap"]
+                elif k == "beat":
+                    P.append(dict(kind="beat", v=v, lane=lid, cx=cx, y=lane_y[lid]+14, w=0, h=0))
+                    lane_y[lid] += SLOTS["beat"]
+                elif k == "segment":
+                    P.append(dict(kind="segment", v=v, lane=lid, cx=cx, y=lane_y[lid]+8, w=0, h=0))
+                    lane_y[lid] += SLOTS["segment"]
+                elif k == "chip":
+                    P.append(dict(kind="chip", v=v, lane=lid, cx=cx, y=lane_y[lid]+6, w=0, h=0))
+                    lane_y[lid] += SLOTS["chip"]
+                elif k == "split":
+                    P.append(dict(kind="split", v=v, lane=lid, cx=cx, y=lane_y[lid]+round(50*B), w=0, h=0))
+                    split_pos[v] = (lid, cx, lane_y[lid]+round(50*B))
+                    lane_y[lid] += SLOTS["split"]
+                elif k == "stub":
+                    w,h = measure("stub", v, lid)
+                    sv = stubs[v] if isinstance(v, str) else v
+                    P.append(dict(kind="stub", v=sv, lane=lid, cx=cx+92, y=lane_y[lid], w=w, h=h, ref=v))
+                    lane_y[lid] += max(h,70) + SLOTS["stub_gap"]
+                elif k == "laneborn":
+                    P.append(dict(kind="laneborn", v=v, lane=lid, cx=cx, y=lane_y[lid]+6, w=0, h=0))
+                    lane_y[lid] += SLOTS["laneborn"]
+                elif k == "abandon":
+                    amt = max(60, min(int(v), 320))
+                    P.append(dict(kind="abandon", v=amt, lane=lid, cx=cx, y=lane_y[lid], w=0, h=amt))
+                    lane_y[lid] += amt + SLOTS["abandon_gap"]
+                elif k == "ending":
+                    w,h = measure("ending", v, lid)
+                    P.append(dict(kind="ending", v=v, lane=lid, cx=cx-220, y=lane_y[lid], w=w, h=h))
+                    lane_y[lid] += h + SLOTS["ending_gap"]
+        prev_splits = dict(split_pos)   # carry into next pass for cross-lane anchoring
+        key = tuple((p["kind"], p["lane"], p["y"]) for p in P)
+        if key == prev_key: break
+        prev_key = key
+    else:
+        raise RuntimeError("layout did not converge in 8 passes")
+
+    y_bot = max(lane_y.values())
+    legend_h = 28*len(g.get("legend", [])) + 70
+    H = max(y_bot + 60 + legend_h + 60, 1400)
+
+    img = Image.new("RGB", (W,H), (246,246,244) if style=="tape" else (247,245,240))
+    d = ImageDraw.Draw(img)
+
+    INK=(25,28,34); GREY=(110,112,118); GREEN=(38,118,62); LANE=(150,148,142)
+    YELLOW=(255,232,122); YE=(185,168,95); YTXT=(60,48,8)
+    CH=(43,87,151); CHDIM=(120,120,126); SEGF=(70,110,60)
+    DEADF=(243,234,234); DEADE=(150,74,74); GREENF=(236,246,238); GREENT=(16,70,38)
+    if style=="tape": INK=(20,20,22); GREEN=(15,15,17); LANE=(70,70,74); DEADE=(140,30,30)
+
+    # ---- node-type palette (per-film override via meta.node_types) ----
+    nt = {"thread": {"color": GREEN, "weight": 10},
+          "lane":   {"color": LANE,  "weight": 4},
+          "pre":    {"color": LANE,  "weight": 4},
+          "abandon":{"color": LANE,  "weight": 3},
+          "death":  {"color": DEADE, "weight": 3},
+          "join":   {"color": GREEN, "weight": 10}}
+    _ov = g.get("meta", {}).get("node_types") or {}
+    def _lighten(c, f=0.62): return tuple(int(v + (255-v)*f) for v in c)
+    def _darken(c, f=0.42):  return tuple(int(v*f) for v in c)
+    D_EDGE, D_FILL, D_TEXT = DEADE, DEADF, (90,20,20)
+    if isinstance(_ov.get("death"), dict) and "color" in _ov["death"]:
+        D_EDGE = tuple(_ov["death"]["color"]); D_FILL = _lighten(D_EDGE); D_TEXT = _darken(D_EDGE)
+    E_EDGE, E_FILL, E_TEXT = GREEN, GREENF, GREENT
+    if isinstance(_ov.get("ending"), dict) and "color" in _ov["ending"]:
+        E_EDGE = tuple(_ov["ending"]["color"]); E_FILL = _lighten(E_EDGE); E_TEXT = _darken(E_EDGE)
+    S_FILL, S_EDGE, S_TEXT = YELLOW, YE, YTXT
+    if isinstance(_ov.get("split"), dict):
+        _so = _ov["split"]
+        S_FILL = tuple(_so.get("color", YELLOW)); S_EDGE = tuple(_so.get("edge", YE)); S_TEXT = tuple(_so.get("text", YTXT))
+    _WSTYLE = {"classic": {},
+               "weight": {"thread": 11, "lane": 6, "pre": 6, "death": 2, "join": 11},
+               "dash":   {"thread": 7,  "lane": 5, "pre": 5, "death": 4, "join": 7},
+               "tape":   {"thread": 10, "lane": 8, "pre": 8, "abandon": 5, "death": 8, "join": 10}}
+    for _k, _v in _WSTYLE.get(style, {}).items():
+        nt[_k]["weight"] = _v
+
+    def stroke(pts, color, width, st="solid", dash=22):
+        if st=="solid":
+            for i in range(len(pts)-1): d.line((*pts[i],*pts[i+1]), fill=color, width=width)
+            return
+        for i in range(len(pts)-1):
+            x1,y1=pts[i]; x2,y2=pts[i+1]; seg=math.hypot(x2-x1,y2-y1)
+            if seg==0: continue
+            nn=max(int(round(seg/dash)),1)
+            cell=1.0/nn
+            for kk in range(nn):
+                t0=kk*cell; t1=min(t0+cell*(0.55 if st=="dash" else 0.35),1)
+                d.line((x1+(x2-x1)*t0, y1+(y2-y1)*t0, x1+(x2-x1)*t1, y1+(y2-y1)*t1), fill=color, width=width)
+    def elbow45(pts):
+        out=[pts[0]]
+        for i in range(1,len(pts)):
+            xa,ya=out[-1]; xb,yb=pts[i]; dx,dy=xb-xa,yb-ya
+            if dx==0 or dy==0 or abs(dx)==abs(dy): out.append((xb,yb)); continue
+            adx,ady=abs(dx),abs(dy)
+            if adx>ady:
+                m=(xa+(adx-ady)*(1 if dx>0 else -1), ya); out+=[m,(m[0]+ady*(1 if dx>0 else -1), yb)]
+            else:
+                m=(xa, ya+(ady-adx)*(1 if dy>0 else -1)); out+=[m,(xb, m[1])]
+        return out
+    def cap_x(pt, color, s=15):
+        x2,y2=pt
+        d.line((x2-s,y2-s,x2+s,y2+s), fill=color, width=4)
+        d.line((x2-s,y2+s,x2+s,y2-s), fill=color, width=4)
+    def head(pt, prev, color, size=15):
+        (x2,y2),(x1,y1)=pt,prev
+        ang=math.atan2(y2-y1,x2-x1)
+        for da in (0.45,-0.45):
+            d.line((x2,y2,x2-size*math.cos(ang+da),y2-size*math.sin(ang+da)), fill=color, width=4)
+
+    def w_of(kind):
+        return nt[kind]["weight"]
+    def s_of(kind):
+        if style!="dash": return "solid"
+        return {"thread":"solid","lane":"solid","pre":"dash","abandon":"dot","death":"dash","join":"solid"}[kind]
+    def col_of(kind):
+        return nt[kind]["color"]
+
+    def seg(pts, kind):
+        pts = elbow45(pts) if style=="tape" else pts
+        stroke(pts, col_of(kind), w_of(kind), s_of(kind))
+        if kind=="death":
+            if style in ("weight","dash"): cap_x(pts[-1], col_of("death"))
+            elif style=="tape":
+                s=w_of(kind)*0.9
+                x2,y2=pts[-1]; d.rectangle((x2-s/2,y2-s/2,x2+s/2,y2+s/2), fill=col_of("death"))
+            else: head(pts[-1], pts[-2], col_of("death"))
+        elif kind in ("thread","join") and style!="tape":
+            head(pts[-1], pts[-2], col_of(kind))
+
+    # ---------- chrome ----------
+    m = g["meta"]
+    f_title=F(54,bold=True); f_sub=F(22); f_route=F(20,bold=True); f_foot=F(16); f_big=F(28,bold=True)
+    d.text((40,24), tc(m["title"]), font=f_title, fill=INK)
+    d.text((40,94), tc(m["subtitle"]), font=f_sub, fill=GREY)
+    d.text((40,128), tc(m["thread_label"]), font=f_route, fill=nt["thread"]["color"])
+    d.line((40,164,W-40,164), fill=INK, width=3)
+
+    by_lane = {lid: sorted([p for p in P if p["lane"]==lid], key=lambda p: p["y"]) for lid in lane_ids}
+    splits_pos = {p["v"]: (p["lane"], p["cx"], p["y"]) for p in P if p["kind"]=="split"}
+    joins_by_split = {}
+    for jid, j in g.get("joins", {}).items():
+        joins_by_split.setdefault(j["from_split"], []).append(jid)
+
+    # ---------- lane base lines ----------
+    for lid in lane_ids:
+        its = by_lane[lid]
+        born = next((p for p in its if p["kind"]=="laneborn"), None)
+        if born and born["v"].get("from_split"):
+            sp = born["v"]["from_split"]
+            (sl, sx, sy) = splits_pos[sp]
+            y_start = born["y"]+30
+            seg([(sx-21, sy+21), (X[lid], y_start)], "lane")
+            seg([(X[lid], y_start), (X[lid], y_bot)], "lane")
+        else:
+            seg([(X[lid], Y_TOP), (X[lid], y_bot)], "pre")
+
+    # ---------- thread verticals (carried through EVERY item kind) ----------
+    for lid in lane_ids:
+        its = by_lane[lid]
+        in_joins = sorted([p["y"] for p in its if p["kind"]=="join"])
+        born = next((p for p in its if p["kind"]=="laneborn"), None)
+        if in_joins:
+            carry_from = in_joins[0]           # green starts at the first join dot
+        elif born is None:
+            carry_from = Y_TOP                 # the opening lane: thread from the very top
+        else:
+            carry_from = None                  # born lane, never joined: no green
+        for p in its:
+            kind = p["kind"]
+            if kind == "join":
+                jid = p["v"]; j = g["joins"][jid]
+                yj = p["y"]
+                (sl, sx, sy) = splits_pos[j["from_split"]]
+                if joins_by_split[j["from_split"]][0] == jid:
+                    seg([(sx, sy+34), (sx, yj)], "thread")     # down the source lane
+                seg([(sx, yj), (X[lid], yj)], "thread")        # across to target
+                carry_from = yj
+            elif kind == "split":
+                if carry_from is not None:
+                    seg([(X[lid], carry_from), (X[lid], p["y"]-34)], "thread")
+                carry_from = None if p["v"] in joins_by_split else p["y"]+34
+            elif kind in ("node","beat","chip","segment","laneborn","ending","stub"):
+                if carry_from is not None:
+                    bottom = p["y"] + (p["h"] or 34)
+                    if bottom > carry_from:            # thread only flows DOWN — never up into pre-history
+                        seg([(X[lid], carry_from), (X[lid], bottom)], "thread")
+                        carry_from = bottom
+            elif kind == "abandon":
+                # world runs on: tail renders regardless of carry state
+                seg([(X[lid], p["y"]), (X[lid], p["y"]+p["h"])], "abandon")
+                if carry_from is not None:
+                    seg([(X[lid], carry_from), (X[lid], p["y"])], "thread")
+                carry_from = None
+        if carry_from is not None:
+            last_bottom = Y_TOP
+            for p in its:
+                b = p["y"] + (p["h"] or 34)
+                if b > last_bottom: last_bottom = b
+            if last_bottom > carry_from:
+                seg([(X[lid], carry_from), (X[lid], last_bottom)], "thread")
+
+    # ---------- stubs diagonals ----------
+    for lid in lane_ids:
+        for p in by_lane[lid]:
+            if p["kind"]=="stub":
+                prev_split = None
+                for q in by_lane[lid]:
+                    if q["kind"]=="split" and q["y"] < p["y"]: prev_split = q
+                if prev_split:
+                    seg([(prev_split["cx"]+22, prev_split["y"]+22), (p["cx"]-8, p["y"]+40)], "death")
+
+    # ---------- markers / boxes / text ----------
+    for p in P:
+        kind, v, lid, cx, y, w, h = p["kind"], p["v"], p["lane"], p["cx"], p["y"], p["w"], p["h"]
+        if kind=="node":
+            lines = wrap(v["body"], f_body, w-30)
+            d.rounded_rectangle((cx,y,cx+w,y+h), radius=12, fill=(255,255,255), outline=INK, width=3)
+            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=INK)
+            yy=y+40
+            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=INK); yy+=22
+            if v.get("cite"): d.text((cx+15,yy+2), v["cite"], font=f_cite, fill=GREY)
+        elif kind=="stub":
+            lines = wrap(v.get("sub",""), f_body, w-30)
+            d.rounded_rectangle((cx,y,cx+w,y+h), radius=10, fill=D_FILL, outline=D_EDGE, width=3)
+            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=D_TEXT)
+            yy=y+40
+            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=D_TEXT); yy+=22
+        elif kind=="ending":
+            lines = wrap(v["body"], f_body, w-30)
+            d.rounded_rectangle((cx,y,cx+w,y+h), radius=12, fill=E_FILL, outline=E_EDGE, width=3)
+            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=E_TEXT)
+            yy=y+40
+            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=E_TEXT); yy+=22
+            if v.get("cite"): d.text((cx+15,yy+2), v["cite"], font=f_cite, fill=GREY)
+        elif kind=="split":
+            sl = g["splits"][v]
+            r=30
+            d.ellipse((cx-r,y-r,cx+r,y+r), fill=S_FILL, outline=S_EDGE, width=4)
+            letter=sl["letter"]
+            d.text((cx-tw(letter,f_big)/2, y-18), letter, font=f_big, fill=S_TEXT)
+            for i,cl in enumerate(sl["caption"].split("\n")):
+                d.text((cx+44, y-12+i*24), tc(cl), font=f_cap, fill=GREY)
+        elif kind=="join":
+            j = g["joins"][v]
+            d.ellipse((cx-13, y-13, cx+13, y+13), fill=nt["join"]["color"], outline=(255,255,255), width=3)
+            side = j.get("side","right")
+            lw = tw(j["label"], f_cap)
+            lbl = tc(j["label"])
+            lw = tw(lbl, f_cap)
+            if side=="left" and cx-18-lw < 8: side = "right"   # auto-flip: don't clip at edge
+            if side=="left": d.text((cx-18-lw, y-30), lbl, font=f_cap, fill=nt["join"]["color"])
+            else: d.text((cx+18, y-30), lbl, font=f_cap, fill=nt["join"]["color"])
+        elif kind=="beat":
+            if isinstance(v,str): v={"beat":v}
+            tone=v.get("tone"); col=GREY
+            if tone=="death": col=(150,44,44)
+            elif tone=="good": col=GREEN
+            side=v.get("side","right")
+            d.ellipse((cx-5,y-5,cx+5,y+5), fill=col)
+            txt=v["beat"]+(f" ({v['cite']})" if v.get("cite") else "")
+            txt = tc(txt)
+            if side=="right": d.text((cx+16,y-10), txt, font=f_beat, fill=col)
+            else: d.text((cx-16-tw(txt,f_beat), y-10), txt, font=f_beat, fill=col)
+        elif kind=="chip":
+            if isinstance(v,str): v={"chip":v}
+            fill=CHDIM if v.get("dim") else CH
+            chip_txt = tc(v["chip"])
+            wid=int(tw(chip_txt,f_chip))+20
+            d.rounded_rectangle((cx+16,y,cx+16+wid,y+28), radius=6, fill=fill)
+            d.text((cx+26,y+4), chip_txt, font=f_chip, fill=(255,255,255))
+        elif kind=="segment":
+            txt=v if isinstance(v,str) else v.get("segment","")
+            txt = tc(txt)
+            wid=int(tw(txt,f_seg))+20
+            d.rounded_rectangle((cx+16,y,cx+16+wid,y+28), radius=6, fill=SEGF)
+            d.text((cx+26,y+5), txt, font=f_seg, fill=(255,255,255))
+        elif kind=="laneborn":
+            nb=v
+            chip_txt = tc(nb["chip"])
+            wid=int(tw(chip_txt,f_chip))+20
+            d.rounded_rectangle((cx+16,y,cx+16+wid,y+28), radius=6, fill=CHDIM)
+            d.text((cx+26,y+4), chip_txt, font=f_chip, fill=(255,255,255))
+            if nb.get("note"):
+                for i,t in enumerate(wrap(tc(nb["note"]), f_note, LANE_W-40)):
+                    d.text((cx+16, y+40+i*24), t, font=f_note, fill=GREY)
+
+    # ---------- legend follows content ----------
+    ry = y_bot + 60
+    d.rounded_rectangle((40, ry, W-40, ry+28*len(g["legend"])+70), radius=10,
+                        fill=(255,255,255), outline=INK, width=2)
+    d.text((60, ry+12), "The Index / How to Read", font=F(20,bold=True), fill=INK)
+    yy=ry+48
+    for l in g["legend"]:
+        d.text((60,yy), tc(l), font=f_note, fill=INK); yy+=28
+    d.text((40, ry+28*len(g["legend"])+82), tc(m["footer"]), font=f_foot, fill=GREY)
+
+    return img
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser()
+    ap.add_argument("graph"); ap.add_argument("-o","--out",default=None)
+    ap.add_argument("--style", default="classic", choices=["classic","weight","dash","tape"])
+    a = ap.parse_args()
+    g = json.load(open(a.graph))
+    errs = validate(g)
+    if errs:
+        print("VALIDATION FAILED — fix the JSON (story), not the engine:")
+        for e in errs: print("  -", e)
+        sys.exit(2)
+    out = a.out or a.graph.replace(".json", f"-{a.style}.png")
+    img = build(g, a.style)
+    img.save(out, "PNG")
+    print("saved", out, img.size)
