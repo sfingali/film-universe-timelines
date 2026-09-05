@@ -349,12 +349,12 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
                 if k == "join":
                     jid = v; j = g["joins"][jid]
                     yj = lane_y[lid] + 62
-                    if j["from_split"] in split_pos:          # source placed this pass
+                    if j.get("from_split") in split_pos:      # source placed this pass
                         yj = max(yj, split_pos[j["from_split"]][2] + JOIN_DROP)
-                    elif j["from_split"] in prev_splits:      # fall back to prev pass pos
+                    elif j.get("from_split") in prev_splits:  # fall back to prev pass pos
                         yj = max(yj, prev_splits[j["from_split"]][2] + JOIN_DROP)
                     # dodge ANY placed item whose box/text intersects the horizontal run
-                    (slx, sxx, syy) = split_pos.get(j["from_split"], (lid, cx, yj-JOIN_DROP))
+                    (slx, sxx, syy) = split_pos.get(j.get("from_split"), (lid, cx, yj-JOIN_DROP))
                     lo_x, hi_x = sorted((sxx, X[lid]))
                     def q_extent(q):
                         """logical (n-extent, t-extent) of a placed item — see q_extent_any"""
@@ -567,7 +567,13 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
     d.text((40,24), tc(m["title"]), font=f_title, fill=INK)
     d.text((40,94), tc(m["subtitle"]), font=f_sub, fill=GREY)
     d.text((40,128), tc(m["thread_label"]), font=f_route, fill=nt["thread"]["color"])
-    d.line((40,164,img_w-40,164), fill=INK, width=3)
+    _chip_txt = m.get("_profile_chip")
+    if _chip_txt:
+        _cf = F(18, bold=True)
+        _cw = dd.textlength(tc(_chip_txt), font=_cf)
+        d.rounded_rectangle((40,156,60+_cw,184), radius=6, fill=(238,230,214), outline=INK, width=2)
+        d.text((50,161), tc(_chip_txt), font=_cf, fill=INK)
+    d.line((40,194,img_w-40,194), fill=INK, width=3)
 
     by_lane = {lid: sorted([p for p in P if p["lane"]==lid], key=lambda p: p["y"]) for lid in lane_ids}
     splits_pos = {p["v"]: (p["lane"], p["cx"], p["y"]) for p in P if p["kind"]=="split"}
@@ -604,6 +610,8 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
             if kind == "join":
                 jid = p["v"]; j = g["joins"][jid]
                 yj = p["y"]
+                if j.get("from_split") not in splits_pos:
+                    continue          # no split anchor (fixture join from split-less lane): thread enters at the join dot
                 (sl, sx, sy) = splits_pos[j["from_split"]]
                 if joins_by_split[j["from_split"]][0] == jid:
                     seg([(sx, sy+34), (sx, yj)], "thread")     # down the source lane
@@ -1015,11 +1023,39 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("graph"); ap.add_argument("-o","--out",default=None)
+    ap.add_argument("--fixture", action="store_true", help="input is a v2.3 fixture doc; adapt + render every graph")
     ap.add_argument("--style", default="classic", choices=["classic","weight","dash","tape"])
     ap.add_argument("--density", default="normal", choices=["compact","normal"])
     ap.add_argument("--print-hitboxes", action="store_true")
     ap.add_argument("--orientation", default="vertical", choices=["vertical","horizontal"])
     a = ap.parse_args()
+    if a.fixture:
+        sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "build"))
+        from v23_adapter import adapt
+        doc = json.load(open(a.graph))
+        outs = adapt(doc)
+        outdir = a.out or "/tmp/fut/build/render"
+        os.makedirs(outdir, exist_ok=True)
+        for gi, v1 in enumerate(outs):
+            ns = (v1.get("meta", {}).get("_graph_ns") or f"graph{gi}").replace("*", "star")
+            m = v1.setdefault("meta", {})
+            m.setdefault("title", m.get("_graph_ns") or ns)
+            m.setdefault("subtitle", "sfingali/film-universe-timelines - spec v2.3")
+            m.setdefault("thread_label", m.get("_thread_route", ""))
+            m.setdefault("footer", "Ontology: " + (m.get("_profile_chip") or "undeclared"))
+            # v1 shape fixes: lanes need {id,label} objects; meta needs canvas
+            labels = v1.get("lane_labels", {})
+            v1["lanes"] = [{"id": lid, "label": labels.get(lid, lid)} for lid in v1["lanes"]]
+            m.setdefault("canvas", [2800, 4000])
+            v1.setdefault("timescale", None)
+            v1.setdefault("nodes", []); v1.setdefault("stubs", {}); v1.setdefault("arcs", {})
+            v1.setdefault("joins", {}); v1.setdefault("legend", []); v1.setdefault("lane_labels", {})
+            # v1 validate() on adapted dict is advisory only; render regardless
+            img = build(v1, a.style, density=a.density, orientation=a.orientation)
+            outp = os.path.join(outdir, f"{ns}-{a.style}.png")
+            img.save(outp, "PNG")
+            print("saved", outp, img.size)
+        sys.exit(0)
     g = json.load(open(a.graph))
     errs = validate(g)
     if errs:
