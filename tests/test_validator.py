@@ -61,6 +61,49 @@ def with_arc(base, arcs=ARCS, arc_items=True, mark_items=True):
     return g
 
 
+# pass 2a additive fields (#2-#6): each must be refused with exit 2, no PNG
+PASS2A_LIES = ("interval_no_timescale", "bad_traveller_arc", "bad_traveller_beat",
+               "bad_screen", "bad_certainty")
+
+def with_pass2a_lie(base, mode):
+    g = deep_copy(base)
+    g["meta"]["travellers"] = {"Aaron": [79, 140, 214]}
+    if mode == "interval_no_timescale":
+        g["arcs"] = {"a1": {"from_lane": "A", "to_lane": "A", "kind": "loop",
+                            "label": "again", "interval": [10, 2], "traveller": "Aaron"}}
+        g["lanes_content"]["A"].insert(1, {"arc": "a1"})
+        g["lanes_content"]["A"].insert(2, {"mark": "a1"})
+    elif mode == "bad_traveller_arc":
+        g["meta"]["timescale"] = {"unit": "hour", "start": 0}
+        g["arcs"] = {"a1": {"from_lane": "A", "to_lane": "A", "kind": "loop",
+                            "label": "again", "traveller": "Ghost"}}
+        g["lanes_content"]["A"].insert(1, {"arc": "a1"})
+        g["lanes_content"]["A"].insert(2, {"mark": "a1"})
+    elif mode == "bad_traveller_beat":
+        g["lanes_content"]["A"].insert(1, {"beat": "x", "traveller": "Ghost"})
+    elif mode == "bad_screen":
+        g["lanes_content"]["A"].insert(1, {"beat": "x", "screen": "nonsense"})
+    elif mode == "bad_certainty":
+        g["lanes_content"]["A"].insert(1, {"beat": "x", "certainty": "nonsense"})
+    return g
+
+
+def with_pass2a_good(base):
+    """a well-formed graph opting into every pass2a field — must still render."""
+    g = deep_copy(base)
+    g["meta"]["timescale"] = {"unit": "hour", "start": 0}
+    g["meta"]["travellers"] = {"Aaron": [79, 140, 214]}
+    g["meta"]["versioning"] = "crossing-count"
+    g["arcs"] = {"a1": {"from_lane": "A", "to_lane": "A", "kind": "loop", "label": "again",
+                        "interval": [10, 2], "traveller": "Aaron"}}
+    g["lanes_content"]["A"].insert(1, {"mark": "a1"})
+    g["lanes_content"]["A"].insert(2, {"beat": "x", "screen": "film", "certainty": "seen",
+                                       "traveller": "Aaron"})
+    g["lanes_content"]["A"].insert(3, {"arc": "a1"})
+    g["lanes_content"]["B"].append({"ending": {"title": "?", "body": "unresolved",
+                                               "uncertain": True}})
+    return g
+
 
 def run_engine(graph, out):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -144,6 +187,30 @@ def main():
     else:
         os.unlink(out)
         print("ok  well-formed arc chart renders")
+
+    # pass 2a lies: each must exit 2, no PNG
+    for mode in PASS2A_LIES:
+        g = with_pass2a_lie(GOOD, mode)
+        rc, msg = run_engine(g, out)
+        if rc == 0:
+            print(f"FAIL  {mode}: lie rendered (exit 0)")
+            failures += 1
+        elif os.path.exists(out):
+            print(f"FAIL  {mode}: exit {rc} but PNG exists")
+            os.unlink(out)
+            failures += 1
+        else:
+            print(f"ok  {mode}: refused (exit {rc})")
+
+    # sanity: a well-formed graph using every pass2a field must still render
+    rc, msg = run_engine(with_pass2a_good(GOOD), out)
+    if rc != 0:
+        print("FAIL  well-formed pass2a chart refused:")
+        print(msg)
+        failures += 1
+    else:
+        os.unlink(out)
+        print("ok  well-formed pass2a chart renders")
 
     print("ALL PASS" if failures == 0 else f"{failures} FAILURES")
     sys.exit(1 if failures else 0)

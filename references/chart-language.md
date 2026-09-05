@@ -64,3 +64,13 @@ chart tells.
 - Legend at the foot, under "The Index / How to Read" — two or three lines
   that teach the grammar, because the audience for these charts has never
   seen one before.
+
+## Citation and uncertainty discipline
+
+- Every beat cites the script (`#scene`). Where a film has no scene numbers
+  (studied from the print), cite the runtime instead — `46:32` — and say so
+  in the legend. Never guess.
+- Compress uncountable repeats into a labelled row/segment (`11+`). End on
+  `?` when the final state is unknowable (`uncertain: true` on the ending —
+  dashed "?" box, not the confident green). Uncertainty gets its own row,
+  never a guess.

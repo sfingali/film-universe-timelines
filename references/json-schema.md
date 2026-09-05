@@ -72,6 +72,23 @@ The JSON is the story. The engine validates then renders. Version: v4 engine.
 }
 ```
 
+## Output-flexibility fields (pass 2a — all opt-in; absent = unchanged rendering)
+
+| field | where | values | effect |
+|---|---|---|---|
+| `interval` | arc | `[depart, arrive]` | loop-rectangle (Clawz114 staple shape): duration becomes geometry. **Requires `meta.timescale`** — validation refuses otherwise (exit 2) |
+| `meta.timescale` | meta | `{"unit": "hour", "start": 0}` | the time axis `interval` measures against |
+| `screen` | beat | `film` \| `flashback` \| `deduced` | yellow presence chip (UnrealityMag device) — is this beat shown in the film? |
+| `certainty` | beat | `seen` \| `flashback` \| `seen-later` \| `never-shown` | epistemic colour (Clawz114 code): how you know. `classic`/`weight` render full colour; `dash`/`tape` carry letter glyphs S/F/L/N — never silently dropped |
+| `traveller` | beat or arc | name in `meta.travellers` | ties the item to a traveller identity |
+| `meta.travellers` | meta | `{"Name": [r,g,b]}` | per-traveller colours; enables versioning + survivor census |
+| `meta.versioning` | meta | `"crossing-count"` | engine auto-suffixes traveller labels `(n)` = ordinal count of their departures in story order (`Aaron(0)`, `Aaron(1)`…) — no hand-typed version numbers |
+| `uncertain` | ending | `true` | dashed/grey "?" terminal box instead of the confident green ending — uncertainty gets its own terminal state |
+
+`meta.travellers` also appends a **survivor census** line to the legend — engine-computed occupancy at the ending, e.g. `2× Abe, 3× Aaron alive at the ending` (Clawz114's closing note, made computable). Absent travellers → no census, no change.
+
+CLI: `--density compact|normal` (default `normal` — byte-identical to the v4 look; `compact` tightens rhythm/lane-gap/stub offset toward the reference-chart density). Horizontal orientation is a separate pass (see `references/output-redesign-decisions.md`).
+
 ## Validation rules (enforced, exit 2)
 
 - every `split`/`stub`/`node`/`join` reference in `lanes_content` must resolve
@@ -81,6 +98,8 @@ The JSON is the story. The engine validates then renders. Version: v4 engine.
 - every `thread` element must be a known node/split/join id or `ENDING`
 - each arc: exactly one `arc` item in from_lane + one `mark` item in to_lane;
   kind travel|return|loop; color [r,g,b]; carry_through/arrive_thread boolean
+- `interval` on an arc without `meta.timescale` is refused; `traveller` names
+  must exist in `meta.travellers`; `screen`/`certainty` values are enum-checked
 - unknown lanes in `lanes_content` fail
 
 ## Optional items

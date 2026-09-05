@@ -1,0 +1,60 @@
+{
+  "_doc": "PASS 2A FEATURE DEMO — one small invented story that opts into every additive field from output-redesign-decisions.md #2-#7: interval+timescale (loop-rectangle), beat screen, beat certainty, meta.versioning+travellers (crossing-count + survivor census), and ending.uncertain. Not a real film.",
+  "meta": {
+    "title": "THE RECURRING HOUR — A Test of Every New Field",
+    "subtitle": "One traveller, one lane, two short loops — hours are the story's own timescale",
+    "thread_label": "THE THREAD: PRESENT — THE LOOP HOLDS (OR DOESN'T)",
+    "footer": "Advanced-demo — exercises interval, screen, certainty, versioning, travellers, and uncertain endings.",
+    "canvas": [2400, 1600],
+    "timescale": { "unit": "hour", "start": 0 },
+    "versioning": "crossing-count",
+    "travellers": { "Ray": [200, 120, 40] }
+  },
+  "lanes": [ { "id": "PRESENT", "label": "PRESENT" } ],
+  "nodes": [ {
+    "id": "U1", "lane": "PRESENT",
+    "title": "PRESENT — The Ordinary Hour",
+    "body": "Ray is on shift when the incident log comes up short.",
+    "cite": "opening"
+  } ],
+  "lanes_content": {
+    "PRESENT": [
+      {"node": "U1"},
+      {"beat": "she signs the incident log", "cite": "#4", "screen": "film", "certainty": "seen"},
+      {"beat": "a flashback fills in the missing hour", "cite": "#5", "screen": "flashback", "certainty": "flashback"},
+      {"mark": "loop1"},
+      {"beat": "Ray reappears — the room has already changed", "cite": "#9", "screen": "deduced", "certainty": "seen-later", "traveller": "Ray"},
+      {"beat": "he writes the note that will send him back", "cite": "#11", "certainty": "seen"},
+      {"arc": "loop1"},
+      {"beat": "the loop holds; nothing on screen contradicts it", "cite": "#13", "certainty": "never-shown"},
+      {"mark": "loop2"},
+      {"beat": "a second Ray, older, checks the same log", "cite": "#15", "screen": "deduced", "certainty": "seen-later", "traveller": "Ray"},
+      {"arc": "loop2"},
+      {"beat": "the mechanism is never explained on screen", "cite": "46:32", "certainty": "never-shown"},
+      {"ending": {"title": "The Loop Holds — Or Doesn't", "body": "Whether Ray's revision actually erases the first timeline is left for the audience to decide.", "cite": "#20", "uncertain": true}},
+      {"abandon": 100}
+    ]
+  },
+  "arcs": {
+    "loop1": {
+      "from_lane": "PRESENT", "to_lane": "PRESENT", "kind": "loop",
+      "label": "back 6h to fix the note", "side": "right",
+      "interval": [16, 10], "traveller": "Ray", "color": [200, 120, 40],
+      "carry_through": false, "arrive_thread": false
+    },
+    "loop2": {
+      "from_lane": "PRESENT", "to_lane": "PRESENT", "kind": "loop",
+      "label": "back 10h again", "side": "right",
+      "interval": [34, 24], "traveller": "Ray", "color": [200, 120, 40],
+      "carry_through": false, "arrive_thread": false
+    }
+  },
+  "thread": ["U1", "ENDING"],
+  "legend": [
+    "Yellow chips mark a beat's evidentiary status — FILM / FLASHBACK / DEDUCED (UnrealityMag device).",
+    "In dash/tape styles the same signal survives as a letter: S seen · F flashback · L seen-later · N never-shown.",
+    "The staple-rectangle box encloses how long a loop lasts, drawn to the story's own timescale (here, hours).",
+    "Ray(1) / Ray(2): the engine's own crossing-count — no hand-typed ordinal.",
+    "A dashed grey box with '?' is an ending the film deliberately leaves unresolved."
+  ]
+}

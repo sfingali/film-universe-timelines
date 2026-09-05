@@ -134,6 +134,18 @@ def validate(g):
                 fs = it[k].get("from_split")
                 if fs is not None and fs not in splits:
                     errs.append(f"{lb_lane}.laneborn: unknown from_split '{fs}'")
+    timescale = g.get("meta", {}).get("timescale")
+    travellers = g.get("meta", {}).get("travellers")
+    versioning = g.get("meta", {}).get("versioning")
+    if versioning is not None and versioning != "crossing-count":
+        errs.append(f"meta.versioning: unknown value '{versioning}' (only 'crossing-count' supported)")
+    if travellers is not None and not isinstance(travellers, dict):
+        errs.append("meta.travellers: must be an object of name -> [r,g,b]")
+    for name, col in (travellers or {}).items():
+        if not (isinstance(col, list) and len(col) == 3):
+            errs.append(f"meta.travellers.{name}: color must be [r,g,b]")
+    known_travellers = set((travellers or {}).keys())
+
     arcs = g.get("arcs", {})
     arc_items, mark_items = [], []
     for lid in lane_ids:
@@ -160,6 +172,27 @@ def validate(g):
         for flag in ("carry_through", "arrive_thread"):
             if flag in a and not isinstance(a[flag], bool):
                 errs.append(f"arcs.{aid}: {flag} must be boolean")
+        if "interval" in a:
+            iv = a["interval"]
+            if not (isinstance(iv, list) and len(iv) == 2 and all(isinstance(x, (int, float)) for x in iv)):
+                errs.append(f"arcs.{aid}: interval must be [depart, arrive] numbers")
+            if not timescale:
+                errs.append(f"arcs.{aid}: interval requires meta.timescale to be set")
+        if "traveller" in a and a["traveller"] not in known_travellers:
+            errs.append(f"arcs.{aid}: traveller '{a['traveller']}' not declared in meta.travellers")
+    for lid in lane_ids:
+        for it in lc.get(lid, []):
+            k = next(iter(it)); v = it[k]
+            if k == "beat":
+                if "screen" in it and it["screen"] not in ("film", "flashback", "deduced"):
+                    errs.append(f"{lid}: beat screen must be film|flashback|deduced (got '{it['screen']}')")
+                if "certainty" in it and it["certainty"] not in ("seen", "flashback", "seen-later", "never-shown"):
+                    errs.append(f"{lid}: beat certainty must be seen|flashback|seen-later|never-shown (got '{it['certainty']}')")
+                if "traveller" in it and it["traveller"] not in known_travellers:
+                    errs.append(f"{lid}: beat traveller '{it['traveller']}' not declared in meta.travellers")
+            if k == "ending" and isinstance(v, dict):
+                if "uncertain" in v and not isinstance(v["uncertain"], bool):
+                    errs.append(f"{lid}: ending.uncertain must be boolean")
     placed_set, marked_set = set(placed), set(a for _, a in mark_items)
     if len(mark_items) != len(marked_set):
         errs.append("a mark is placed more than once (each arc has exactly one arrival)")
@@ -174,16 +207,17 @@ def validate(g):
     return errs
 
 # ---------------- layout + draw ----------------
-def build(g, style="classic"):
+def build(g, style="classic", density="normal"):
     global _PROTECT
     _PROTECT = set()
+    compact = density == "compact"
     for l in g.get("lanes", []):
         _PROTECT.add(str(l.get("id", "")).upper())
         lab = str(l.get("label", "")).strip()
         if lab and lab.isupper() and len(re.findall(r"[A-Za-z0-9*']+", lab)) == 1:
             _PROTECT.add(re.findall(r"[A-Za-z0-9*']+", lab)[0].upper())
     W = max(int(g["meta"]["canvas"][0]), 2400)
-    MARGIN, LANE_GAP = 60, 100
+    MARGIN, LANE_GAP = 60, (78 if compact else 100)
     lane_ids = [l["id"] for l in g["lanes"]]
     n = len(lane_ids)
     LANE_W = min(560, (W - 2*MARGIN - (n-1)*LANE_GAP)//n)
@@ -201,8 +235,22 @@ def build(g, style="classic"):
     stubs = g.get("stubs", {})
     raw = {lid: list(g.get("lanes_content", {}).get(lid, [])) for lid in lane_ids}
 
-    B = 1.35          # vertical breathing factor
+    # survivor census (#7): computed occupancy, appended to legend iff meta.travellers exists
+    travellers_meta = g.get("meta", {}).get("travellers")
+    census_line = None
+    if travellers_meta:
+        counts = {name: 1 for name in travellers_meta}
+        for a_ in g.get("arcs", {}).values():
+            tvl = a_.get("traveller")
+            if tvl in counts:
+                counts[tvl] += 1
+        census_line = ", ".join(f"{counts[name]}× {name}" for name in travellers_meta) + " alive at the ending"
+    legend_lines = list(g.get("legend", [])) + ([census_line] if census_line else [])
+
+    B = 1.02 if compact else 1.35   # vertical breathing factor
+    STUB_OFF = 60 if compact else 92
     JOIN_DROP = 120   # px below the source split center for the join horizontal
+    PX_PER_UNIT = 30  # interval (#2): px per meta.timescale unit for loop-rectangle height
     SLOTS = dict(beat=round(56*B), segment=round(70*B), chip=round(66*B),
                  split=round(132*B), join_after=round(118*B),
                  laneborn=round(150*B), node_gap=round(26*B), stub_gap=round(16*B)+10,
@@ -324,7 +372,12 @@ def build(g, style="classic"):
                     P.append(dict(kind="node", v=nv, lane=lid, cx=cx, y=lane_y[lid], w=w, h=h))
                     lane_y[lid] += h + SLOTS["node_gap"]
                 elif k == "beat":
-                    P.append(dict(kind="beat", v=v, lane=lid, cx=cx, y=lane_y[lid]+14, w=0, h=0))
+                    # screen/certainty/traveller (#3-#5) are flat sibling keys on the item;
+                    # carried through explicitly so existing cite/tone-dropping behavior
+                    # (pre-existing, load-bearing for pixel-identical old renders) is untouched
+                    extra = {ek: it[ek] for ek in ("screen", "certainty", "traveller") if ek in it}
+                    bv = dict(v, **extra) if isinstance(v, dict) else (dict(beat=v, **extra) if extra else v)
+                    P.append(dict(kind="beat", v=bv, lane=lid, cx=cx, y=lane_y[lid]+14, w=0, h=0))
                     lane_y[lid] += SLOTS["beat"]
                 elif k == "segment":
                     P.append(dict(kind="segment", v=v, lane=lid, cx=cx, y=lane_y[lid]+8, w=0, h=0))
@@ -339,7 +392,7 @@ def build(g, style="classic"):
                 elif k == "stub":
                     w,h = measure("stub", v, lid)
                     sv = stubs[v] if isinstance(v, str) else v
-                    P.append(dict(kind="stub", v=sv, lane=lid, cx=min(cx+92, W-410), y=lane_y[lid], w=w, h=h, ref=v))
+                    P.append(dict(kind="stub", v=sv, lane=lid, cx=min(cx+STUB_OFF, W-410), y=lane_y[lid], w=w, h=h, ref=v))
                     lane_y[lid] += max(h,70) + SLOTS["stub_gap"]
                 elif k == "laneborn":
                     P.append(dict(kind="laneborn", v=v, lane=lid, cx=cx, y=lane_y[lid]+6, w=0, h=0))
@@ -368,7 +421,7 @@ def build(g, style="classic"):
         raise RuntimeError("layout did not converge in 8 passes")
 
     y_bot = max(lane_y.values())
-    legend_h = 28*len(g.get("legend", [])) + 70
+    legend_h = 28*len(legend_lines) + 70
     H = max(y_bot + 60 + legend_h + 60, 1400)
 
     img = Image.new("RGB", (W,H), (246,246,244) if style=="tape" else (247,245,240))
@@ -379,6 +432,10 @@ def build(g, style="classic"):
     CH=(43,87,151); CHDIM=(120,120,126); SEGF=(70,110,60)
     DEADF=(243,234,234); DEADE=(150,74,74); GREENF=(236,246,238); GREENT=(16,70,38)
     if style=="tape": INK=(20,20,22); GREEN=(15,15,17); LANE=(70,70,74); DEADE=(140,30,30)
+
+    # epistemic colour (#4): classic/weight render full colour; dash/tape carry a letter glyph instead
+    CERTAINTY_COLOR = {"seen": GREY, "flashback": CH, "seen-later": GREEN, "never-shown": (150,44,44)}
+    CERTAINTY_GLYPH = {"seen": "S", "flashback": "F", "seen-later": "L", "never-shown": "N"}
 
     # ---- node-type palette (per-film override via meta.node_types) ----
     nt = {"thread": {"color": GREEN, "weight": 10},
@@ -580,6 +637,15 @@ def build(g, style="classic"):
             y = hit
         return y
 
+    # version counters (#5): ordinal count of a traveller's arc departures, in arc_pos order
+    traveller_seen, arc_ordinal = {}, {}
+    for aid_ in arc_pos:
+        tvl = g["arcs"][aid_].get("traveller")
+        if tvl:
+            traveller_seen[tvl] = traveller_seen.get(tvl, 0) + 1
+            arc_ordinal[aid_] = traveller_seen[tvl]
+    versioning = g.get("meta", {}).get("versioning")
+
     for aid, a in g.get("arcs", {}).items():
         if aid not in arc_pos or aid not in mark_pos: continue
         (fl, fx, fy) = arc_pos[aid]
@@ -590,12 +656,18 @@ def build(g, style="classic"):
                LOOPC if kind == "loop" else GREY))
         awd  = 7 if kind != "loop" else 5
         label = tc(a.get("label", ""))
+        if versioning == "crossing-count" and a.get("traveller"):
+            suffix = f"{a['traveller']}({arc_ordinal.get(aid, 1)})"
+            label = f"{label} — {suffix}" if label else suffix
         lw_ = tw(label, f_cap)
 
-        def _label_clear(lx, ly):
-            """push a label up/down until its box hits nothing"""
+        def _label_clear(lx, ly, extra_h=14):
+            """push a label up/down until its box hits nothing.
+            extra_h: label-box height below ly. Interval labels draw a second
+            line (duration) at ly+22, so they pass 42; elbow arcs keep the
+            historical 14 so existing charts stay pixel-identical."""
             for _ in range(12):
-                box = (lx-4, lx+lw_+4, ly-8, ly+14)
+                box = (lx-4, lx+lw_+4, ly-8, ly+extra_h)
                 hit = False
                 for q in P:
                     if q["kind"] in ("join","arc","mark"): continue
@@ -606,7 +678,33 @@ def build(g, style="classic"):
                 ly += 22
             return ly
 
-        if tl == fl:
+        if "interval" in a:
+            # loop-rectangle (#2): enter at depart, box height ~ duration, re-emerge earlier
+            depart, arrive = a["interval"]
+            duration = abs(depart - arrive)
+            unit = g.get("meta", {}).get("timescale", {}).get("unit", "")
+            dur_label = f"{duration:g} {unit}".strip()
+            box_h = max(50, min(360, round(duration * PX_PER_UNIT)))
+            side = a.get("side") or ("left" if tx <= fx else "right")
+            sgn = 1 if side == "right" else -1
+            bx = fx + sgn*180 if tl == fl else (min(fx,tx)-56 if side == "left" else max(fx,tx)+56)
+            top_y = fy - box_h
+            d.line((fx, fy, bx, fy), fill=acol, width=awd)
+            d.line((bx, fy, bx, top_y), fill=acol, width=awd)
+            d.line((bx, top_y, fx, top_y), fill=acol, width=awd)
+            if fx != tx or abs(top_y - ty) > 2:
+                conn = elbow45([(fx, top_y), (tx, ty)]) if style=="tape" else [(fx, top_y), (tx, ty)]
+                stroke(conn, acol, awd)
+                head(conn[-1], conn[-2], acol)
+            else:
+                head((fx, top_y), (bx, top_y), acol)
+            d.ellipse((fx-9,fy-9,fx+9,fy+9), fill=(255,255,255), outline=acol, width=4)
+            d.ellipse((tx-7,ty-7,tx+7,ty+7), fill=acol, outline=(255,255,255), width=3)
+            lx = bx + sgn*16 if side == "right" else bx - 16 - lw_
+            ly = _label_clear(lx, (fy+top_y)/2 - 8, extra_h=42)
+            d.text((lx, ly), label, font=f_cap, fill=acol if kind!="loop" else GREY)
+            d.text((lx, ly+22), dur_label, font=f_cite, fill=GREY)
+        elif tl == fl:
             # self-lane loop: bulge sideways
             side = a.get("side") or "right"
             if side == "left" and fx - 220 < 10: side = "right"   # don't bulge off-canvas
@@ -675,10 +773,18 @@ def build(g, style="classic"):
             for t in lines: d.text((cx+15,yy), t, font=f_body, fill=D_TEXT); yy+=22
         elif kind=="ending":
             lines = wrap(v["body"], f_body, w-30)
-            d.rounded_rectangle((cx,y,cx+w,y+h), radius=12, fill=E_FILL, outline=E_EDGE, width=3)
-            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=E_TEXT)
+            uncertain = v.get("uncertain")
+            fill_c = (238,238,234) if uncertain else E_FILL
+            edge_c = GREY if uncertain else E_EDGE
+            text_c = GREY if uncertain else E_TEXT
+            d.rounded_rectangle((cx,y,cx+w,y+h), radius=12, fill=fill_c,
+                                outline=edge_c, width=(1 if uncertain else 3))
+            if uncertain:
+                stroke([(cx,y),(cx+w,y),(cx+w,y+h),(cx,y+h),(cx,y)], edge_c, 3, "dash")
+                d.text((cx+w-46,y+8), "?", font=F(34,bold=True), fill=edge_c)
+            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=text_c)
             yy=y+40
-            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=E_TEXT); yy+=22
+            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=text_c); yy+=22
             if v.get("cite"): d.text((cx+15,yy+2), v["cite"], font=f_cite, fill=GREY)
         elif kind=="split":
             sl = g["splits"][v]
@@ -706,6 +812,9 @@ def build(g, style="classic"):
             tone=v.get("tone"); col=GREY
             if tone=="death": col=(150,44,44)
             elif tone=="good": col=GREEN
+            certainty = v.get("certainty")
+            if certainty and style in ("classic","weight"):
+                col = CERTAINTY_COLOR[certainty]
             side=v.get("side","right")
             d.ellipse((cx-5,y-5,cx+5,y+5), fill=col)
             txt=v["beat"]+(f" ({v['cite']})" if v.get("cite") else "")
@@ -714,6 +823,18 @@ def build(g, style="classic"):
             for i,bline in enumerate(blines):
                 if side=="right": d.text((cx+16, y-10+i*20), bline, font=f_beat, fill=col)
                 else: d.text((cx-16-tw(bline,f_beat), y-10+i*20), bline, font=f_beat, fill=col)
+            tail_w = max((tw(bl,f_beat) for bl in blines), default=0)
+            tail_x = cx+16+tail_w if side=="right" else cx-16-tail_w
+            if certainty and style in ("dash","tape"):
+                gx = tail_x+10 if side=="right" else tail_x-20
+                d.text((gx, y-10), CERTAINTY_GLYPH[certainty], font=f_cite, fill=GREY)
+                tail_x = gx + (16 if side=="right" else -4)
+            if v.get("screen"):
+                chip_lbl = v["screen"].upper()
+                chip_w = tw(chip_lbl, f_cite)+10
+                chx = tail_x+8 if side=="right" else tail_x-chip_w-8
+                d.rounded_rectangle((chx, y-9, chx+chip_w, y+9), radius=4, fill=YELLOW, outline=YE, width=1)
+                d.text((chx+5, y-8), chip_lbl, font=f_cite, fill=YTXT)
         elif kind=="chip":
             if isinstance(v,str): v={"chip":v}
             fill=CHDIM if v.get("dim") else CH
@@ -746,13 +867,13 @@ def build(g, style="classic"):
 
     # ---------- legend follows content ----------
     ry = y_bot + 60
-    d.rounded_rectangle((40, ry, W-40, ry+28*len(g["legend"])+70), radius=10,
+    d.rounded_rectangle((40, ry, W-40, ry+28*len(legend_lines)+70), radius=10,
                         fill=(255,255,255), outline=INK, width=2)
     d.text((60, ry+12), "The Index / How to Read", font=F(20,bold=True), fill=INK)
     yy=ry+48
-    for l in g["legend"]:
+    for l in legend_lines:
         d.text((60,yy), tc(l), font=f_note, fill=INK); yy+=28
-    d.text((40, ry+28*len(g["legend"])+82), tc(m["footer"]), font=f_foot, fill=GREY)
+    d.text((40, ry+28*len(legend_lines)+82), tc(m["footer"]), font=f_foot, fill=GREY)
 
     return img
 
@@ -760,6 +881,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     ap.add_argument("graph"); ap.add_argument("-o","--out",default=None)
     ap.add_argument("--style", default="classic", choices=["classic","weight","dash","tape"])
+    ap.add_argument("--density", default="normal", choices=["compact","normal"])
     a = ap.parse_args()
     g = json.load(open(a.graph))
     errs = validate(g)
@@ -768,6 +890,6 @@ if __name__ == "__main__":
         for e in errs: print("  -", e)
         sys.exit(2)
     out = a.out or a.graph.replace(".json", f"-{a.style}.png")
-    img = build(g, a.style)
+    img = build(g, a.style, density=a.density)
     img.save(out, "PNG")
     print("saved", out, img.size)
