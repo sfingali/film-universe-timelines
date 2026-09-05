@@ -627,7 +627,7 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
                 carry_from = None
             elif kind == "arc":
                 # traveller departs: thread stops here (resumes at the mark)
-                a_def = g.get("arcs", {}).get(v, {})
+                a_def = g.get("arcs", {}).get(p["v"], {})
                 if carry_from is not None and a_def.get("carry_through", True):
                     seg([(X[lid], carry_from), (X[lid], p["y"])], "thread")
                     carry_from = None
@@ -637,7 +637,7 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
                     carry_from = None
             elif kind == "mark":
                 # traveller arrives: thread resumes at the dot
-                a_def = g.get("arcs", {}).get(v, {})
+                a_def = g.get("arcs", {}).get(p["v"], {})
                 if a_def.get("arrive_thread", True):
                     carry_from = p["y"]
                 # else: someone else's arrival — our thread is unaffected
