@@ -207,10 +207,20 @@ def validate(g):
     return errs
 
 # ---------------- layout + draw ----------------
-def build(g, style="classic", density="normal"):
+def build(g, style="classic", density="normal", orientation="vertical"):
     global _PROTECT
     _PROTECT = set()
     compact = density == "compact"
+    horiz = orientation == "horizontal"
+
+    def XY(t, n):
+        """The single transpose (brief pass2b #1): every drawn coordinate is a
+        lane-relative (t=position-along-lane, n=offset-across-lane) pair until
+        this function turns it into a screen (x,y). vertical: (x,y)=(n,t).
+        horizontal: (x,y)=(t,n). Nothing downstream of this function should
+        need to know which orientation is active."""
+        return (t, n) if horiz else (n, t)
+
     for l in g.get("lanes", []):
         _PROTECT.add(str(l.get("id", "")).upper())
         lab = str(l.get("label", "")).strip()
@@ -222,9 +232,12 @@ def build(g, style="classic", density="normal"):
     n = len(lane_ids)
     LANE_W = min(560, (W - 2*MARGIN - (n-1)*LANE_GAP)//n)
     total = n*LANE_W + (n-1)*LANE_GAP
-    x0 = (W-total)//2
+    HEADER = 230   # px of screen-Y the title/subtitle/thread-label chrome occupies
+    # lane axis (n) starts after the header when it's the screen-Y axis (horizontal);
+    # the flow axis (t) starts after the header when it's the screen-Y axis (vertical).
+    x0 = HEADER if horiz else (W-total)//2
     X = {lid: x0 + i*(LANE_W+LANE_GAP) for i, lid in enumerate(lane_ids)}
-    Y_TOP = 230
+    Y_TOP = MARGIN if horiz else HEADER
 
     probe = Image.new("RGB",(10,10)); dd = ImageDraw.Draw(probe)
     tw, wrap = wrap_fn(dd)
@@ -256,6 +269,13 @@ def build(g, style="classic", density="normal"):
                  laneborn=round(150*B), node_gap=round(26*B), stub_gap=round(16*B)+10,
                  arc=round(70*B), mark=round(60*B),
                  ending_gap=round(30*B), abandon_gap=round(26*B))
+    if horiz:
+        # In horizontal mode these slot sizes advance the cursor along the flow
+        # axis (screen-x), which is also where each item's own label/text is
+        # drawn (reading left to right) — so the slot has to be wide enough to
+        # hold the label itself, not just a narrow vertical-rhythm gap.
+        for k_ in ("beat", "chip", "segment", "laneborn", "split", "join_after", "arc", "mark"):
+            SLOTS[k_] = max(SLOTS[k_], 260 if k_ in ("laneborn", "split") else 220)
 
     def measure(kind, v, lid):
         """(w, h) of the item's visual box at cx (x-center of its lane)."""
@@ -274,11 +294,14 @@ def build(g, style="classic", density="normal"):
         return 0, 0
 
     def q_extent_any(q):
-        """visual x-extent + y-extent of a placed item (build scope — used by arc routing)"""
+        """logical (n-extent, t-extent) of a placed item (build scope — used by arc routing).
+        node/stub/ending always RENDER upright at fixed (w=LANE_W-ish, h=content-driven)
+        screen size regardless of orientation (text can't rotate), so their logical
+        t/n footprint swaps w<->h in horizontal mode — the one axis-conditional this
+        engine needs (brief pass2b: "text wrap widths...genuinely impossible" to transpose)."""
         k2 = q["kind"]; qx, ql = q["cx"], q["w"]
-        if k2 == "node":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
-        if k2 == "stub":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
-        if k2 == "ending":  return (qx, qx+ql, q["y"], q["y"]+q["h"])
+        if k2 in ("node", "stub", "ending"):
+            return (qx, qx+q["h"], q["y"], q["y"]+q["w"]) if horiz else (qx, qx+ql, q["y"], q["y"]+q["h"])
         if k2 == "split":
             sl2 = g["splits"][q["v"]]
             return (qx-30, qx+44+tw(sl2["caption"].split("\n")[0], f_cap),
@@ -330,11 +353,10 @@ def build(g, style="classic", density="normal"):
                     (slx, sxx, syy) = split_pos.get(j["from_split"], (lid, cx, yj-JOIN_DROP))
                     lo_x, hi_x = sorted((sxx, X[lid]))
                     def q_extent(q):
-                        """visual x-extent + y-extent of a placed item"""
+                        """logical (n-extent, t-extent) of a placed item — see q_extent_any"""
                         k2 = q["kind"]; qx, ql = q["cx"], q["w"]
-                        if k2 == "node":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
-                        if k2 == "stub":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
-                        if k2 == "ending":  return (qx, qx+ql, q["y"], q["y"]+q["h"])
+                        if k2 in ("node", "stub", "ending"):
+                            return (qx, qx+q["h"], q["y"], q["y"]+q["w"]) if horiz else (qx, qx+ql, q["y"], q["y"]+q["h"])
                         if k2 == "split":
                             sl2 = g["splits"][q["v"]]
                             return (qx-30, qx+44+tw(sl2["caption"].split("\n")[0], f_cap),
@@ -370,7 +392,7 @@ def build(g, style="classic", density="normal"):
                     w,h = measure("node", v, lid)
                     nv = nodes[v] if isinstance(v, str) else v
                     P.append(dict(kind="node", v=nv, lane=lid, cx=cx, y=lane_y[lid], w=w, h=h))
-                    lane_y[lid] += h + SLOTS["node_gap"]
+                    lane_y[lid] += (w if horiz else h) + SLOTS["node_gap"]
                 elif k == "beat":
                     # screen/certainty/traveller (#3-#5) are flat sibling keys on the item;
                     # carried through explicitly so existing cite/tone-dropping behavior
@@ -393,7 +415,7 @@ def build(g, style="classic", density="normal"):
                     w,h = measure("stub", v, lid)
                     sv = stubs[v] if isinstance(v, str) else v
                     P.append(dict(kind="stub", v=sv, lane=lid, cx=min(cx+STUB_OFF, W-410), y=lane_y[lid], w=w, h=h, ref=v))
-                    lane_y[lid] += max(h,70) + SLOTS["stub_gap"]
+                    lane_y[lid] += max((w if horiz else h),70) + SLOTS["stub_gap"]
                 elif k == "laneborn":
                     P.append(dict(kind="laneborn", v=v, lane=lid, cx=cx, y=lane_y[lid]+6, w=0, h=0))
                     lane_y[lid] += SLOTS["laneborn"]
@@ -412,7 +434,7 @@ def build(g, style="classic", density="normal"):
                 elif k == "ending":
                     w,h = measure("ending", v, lid)
                     P.append(dict(kind="ending", v=v, lane=lid, cx=max(40, cx-220), y=lane_y[lid], w=w, h=h))
-                    lane_y[lid] += h + SLOTS["ending_gap"]
+                    lane_y[lid] += (w if horiz else h) + SLOTS["ending_gap"]
         prev_splits = dict(split_pos)   # carry into next pass for cross-lane anchoring
         key = tuple((p["kind"], p["lane"], p["y"]) for p in P)
         if key == prev_key: break
@@ -420,11 +442,20 @@ def build(g, style="classic", density="normal"):
     else:
         raise RuntimeError("layout did not converge in 8 passes")
 
-    y_bot = max(lane_y.values())
+    y_bot = max(lane_y.values())      # logical t-extent of content
+    n_bot = x0 + total                # logical n-extent actually used by the stacked lanes
     legend_h = 28*len(legend_lines) + 70
-    H = max(y_bot + 60 + legend_h + 60, 1400)
+    # legend/footer sit below the content in SCREEN-Y, which is the t-axis in vertical
+    # mode (content grows down) and the n-axis in horizontal mode (lanes stack down).
+    # n_bot (not the raw W budget) is used for horizontal: W is sized to let LANE_W
+    # grow toward 560px per lane, but with few lanes the lanes may occupy far less
+    # than W, and W is no longer the screen dimension it is in vertical mode.
+    content_screen_y = n_bot if horiz else y_bot
+    content_screen_x = y_bot if horiz else W
+    img_w = max(content_screen_x, 1400)
+    img_h = max(content_screen_y + 60 + legend_h + 60, 1400)
 
-    img = Image.new("RGB", (W,H), (246,246,244) if style=="tape" else (247,245,240))
+    img = Image.new("RGB", (img_w,img_h), (246,246,244) if style=="tape" else (247,245,240))
     d = ImageDraw.Draw(img)
 
     INK=(25,28,34); GREY=(110,112,118); GREEN=(38,118,62); LANE=(150,148,142)
@@ -513,6 +544,8 @@ def build(g, style="classic", density="normal"):
         return nt[kind]["color"]
 
     def seg(pts, kind):
+        """pts are logical (n,t) pairs; single transpose at draw time (brief pass2b #1)."""
+        pts = [XY(t, n) for (n, t) in pts]
         pts = elbow45(pts) if style=="tape" else pts
         stroke(pts, col_of(kind), w_of(kind), s_of(kind))
         if kind=="death":
@@ -530,7 +563,7 @@ def build(g, style="classic", density="normal"):
     d.text((40,24), tc(m["title"]), font=f_title, fill=INK)
     d.text((40,94), tc(m["subtitle"]), font=f_sub, fill=GREY)
     d.text((40,128), tc(m["thread_label"]), font=f_route, fill=nt["thread"]["color"])
-    d.line((40,164,W-40,164), fill=INK, width=3)
+    d.line((40,164,img_w-40,164), fill=INK, width=3)
 
     by_lane = {lid: sorted([p for p in P if p["lane"]==lid], key=lambda p: p["y"]) for lid in lane_ids}
     splits_pos = {p["v"]: (p["lane"], p["cx"], p["y"]) for p in P if p["kind"]=="split"}
@@ -622,6 +655,29 @@ def build(g, style="classic", density="normal"):
                 if prev_split:
                     seg([(prev_split["cx"]+22, prev_split["y"]+22), (p["cx"]-8, p["y"]+40)], "death")
 
+    # screen-space boxes already claimed by drawn content — arc staples/bulges
+    # register themselves here so beat/label placement in horizontal mode
+    # (where a lane's whole row is one thin band) can avoid drawing text on
+    # top of them, the same "try a spot, check, push" idea as _label_clear.
+    occupied = []
+    def _place_perp(lx, sy, box_w, box_h):
+        """Choose a screen-Y for a label block that clears the row's thread
+        line and anything already in `occupied` — horizontal mode's answer to
+        vertical mode's fixed 'sy-10' (text can't sit ON a horizontal line the
+        way it can sit beside a vertical one)."""
+        if not horiz:
+            return sy - 10
+        PERP = 18
+        for k in range(6):
+            for cand in (sy - PERP - box_h - k*(box_h+8), sy + PERP + k*(box_h+8)):
+                box = (lx-4, cand-4, lx+box_w+4, cand+box_h+4)
+                if not any(not (box[2]<o[0] or box[0]>o[2] or box[3]<o[1] or box[1]>o[3]) for o in occupied):
+                    occupied.append(box)
+                    return cand
+        cand = sy + PERP
+        occupied.append((lx-4, cand-4, lx+box_w+4, cand+box_h+4))
+        return cand
+
     # ---------- time-travel arcs (travel / return / loop) ----------
     def _hseg_dodge(y, x_lo, x_hi, exclude=()):
         """push a horizontal run down until it clears placed items"""
@@ -678,6 +734,16 @@ def build(g, style="classic", density="normal"):
                 ly += 22
             return ly
 
+        # fx,fy,tx,ty (and everything derived below: bx,ox,top_y,fy2,ty2,lx,ly) are all
+        # logical (n or t) values, exactly like the layout core. XY() is applied only
+        # at the point each point actually reaches a PIL draw call — the same single-
+        # transpose-at-draw-time discipline as seg()/stroke().
+        def dot(nn, tt, r, fill, outline, ow):
+            x, y = XY(tt, nn)
+            d.ellipse((x-r,y-r,x+r,y+r), fill=fill, outline=outline, width=ow)
+        def dtext(nn, tt, txt, font, fill):
+            d.text(XY(tt, nn), txt, font=font, fill=fill)
+
         if "interval" in a:
             # loop-rectangle (#2): enter at depart, box height ~ duration, re-emerge earlier
             depart, arrive = a["interval"]
@@ -689,21 +755,44 @@ def build(g, style="classic", density="normal"):
             sgn = 1 if side == "right" else -1
             bx = fx + sgn*180 if tl == fl else (min(fx,tx)-56 if side == "left" else max(fx,tx)+56)
             top_y = fy - box_h
-            d.line((fx, fy, bx, fy), fill=acol, width=awd)
-            d.line((bx, fy, bx, top_y), fill=acol, width=awd)
-            d.line((bx, top_y, fx, top_y), fill=acol, width=awd)
+            d.line((*XY(fy,fx), *XY(fy,bx)), fill=acol, width=awd)
+            d.line((*XY(fy,bx), *XY(top_y,bx)), fill=acol, width=awd)
+            d.line((*XY(top_y,bx), *XY(top_y,fx)), fill=acol, width=awd)
+            if horiz:
+                corners = [XY(fy,fx), XY(fy,bx), XY(top_y,bx), XY(top_y,fx)]
+                xs = [c[0] for c in corners]; ys = [c[1] for c in corners]
+                occupied.append((min(xs),min(ys),max(xs),max(ys)))
+                # horizontal interval label: screen-space, two lines stacked
+                # DOWN-SCREEN (the across axis) just below the staple. The
+                # vertical (t,n) dtext transpose would put a "+22 second line"
+                # to the RIGHT (overprinting the label), so horizontal places
+                # both lines explicitly in screen coords and registers the box.
+                sx0 = min(xs) + 24
+                sy0 = max(ys) + 14
+                for _ in range(8):
+                    lbox = (sx0-4, sy0-4, sx0+lw_+4, sy0+48)
+                    if not any(not (lbox[2]<o[0] or lbox[0]>o[2] or lbox[3]<o[1] or lbox[1]>o[3])
+                               for o in occupied):
+                        break
+                    sy0 += 18
+                occupied.append((sx0-4, sy0-4, sx0+lw_+4, sy0+48))
             if fx != tx or abs(top_y - ty) > 2:
-                conn = elbow45([(fx, top_y), (tx, ty)]) if style=="tape" else [(fx, top_y), (tx, ty)]
+                conn = [XY(top_y,fx), XY(ty,tx)]
+                conn = elbow45(conn) if style=="tape" else conn
                 stroke(conn, acol, awd)
                 head(conn[-1], conn[-2], acol)
             else:
-                head((fx, top_y), (bx, top_y), acol)
-            d.ellipse((fx-9,fy-9,fx+9,fy+9), fill=(255,255,255), outline=acol, width=4)
-            d.ellipse((tx-7,ty-7,tx+7,ty+7), fill=acol, outline=(255,255,255), width=3)
-            lx = bx + sgn*16 if side == "right" else bx - 16 - lw_
-            ly = _label_clear(lx, (fy+top_y)/2 - 8, extra_h=42)
-            d.text((lx, ly), label, font=f_cap, fill=acol if kind!="loop" else GREY)
-            d.text((lx, ly+22), dur_label, font=f_cite, fill=GREY)
+                head(XY(top_y,fx), XY(top_y,bx), acol)
+            dot(fx, fy, 9, (255,255,255), acol, 4)
+            dot(tx, ty, 7, acol, (255,255,255), 3)
+            if horiz:
+                d.text((sx0, sy0), label, font=f_cap, fill=acol if kind!="loop" else GREY)
+                d.text((sx0, sy0+22), dur_label, font=f_cite, fill=GREY)
+            else:
+                lx = bx + sgn*16 if side == "right" else bx - 16 - lw_
+                ly = _label_clear(lx, (fy+top_y)/2 - 8, extra_h=42)
+                dtext(lx, ly, label, f_cap, acol if kind!="loop" else GREY)
+                dtext(lx, ly+22, dur_label, f_cite, GREY)
         elif tl == fl:
             # self-lane loop: bulge sideways
             side = a.get("side") or "right"
@@ -722,14 +811,17 @@ def build(g, style="classic", density="normal"):
                 bx += sgn*34
             fy2 = _hseg_dodge(fy, min(fx,bx), max(fx,bx))
             ty2 = _hseg_dodge(ty, min(tx,bx), max(tx,bx))
-            pts = [(fx, fy), (fx, fy2), (bx, fy2), (bx, ty2), (tx, ty2)]
+            pts = [XY(t_,n_) for (n_,t_) in [(fx, fy), (fx, fy2), (bx, fy2), (bx, ty2), (tx, ty2)]]
             stroke(pts, acol, awd)
-            head((tx, ty2), (bx, ty2), acol)
-            d.ellipse((fx-9,fy-9,fx+9,fy+9), fill=(255,255,255), outline=acol, width=4)
-            d.ellipse((tx-7,ty-7,tx+7,ty+7), fill=acol, outline=(255,255,255), width=3)
+            head(pts[-1], pts[-2], acol)
+            if horiz:
+                xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+                occupied.append((min(xs),min(ys),max(xs),max(ys)))
+            dot(fx, fy, 9, (255,255,255), acol, 4)
+            dot(tx, ty, 7, acol, (255,255,255), 3)
             lx = bx + sgn*16 if side == "right" else bx - 16 - lw_
             ly = _label_clear(lx, (fy2+ty2)/2 - 8)
-            d.text((lx, ly), label, font=f_cap, fill=acol if kind!="loop" else GREY)
+            dtext(lx, ly, label, f_cap, acol if kind!="loop" else GREY)
         else:
             # cross-lane: out vertical, across, in
             side = a.get("side") or ("left" if tx < fx else "right")
@@ -746,67 +838,76 @@ def build(g, style="classic", density="normal"):
                 ox += sgn*34
             fy2 = _hseg_dodge(fy, min(fx,ox), max(fx,ox))
             ty2 = _hseg_dodge(ty, min(tx,ox), max(tx,ox))
-            pts = [(fx, fy), (fx, fy2), (ox, fy2), (ox, ty2), (tx, ty2)]
+            pts = [XY(t_,n_) for (n_,t_) in [(fx, fy), (fx, fy2), (ox, fy2), (ox, ty2), (tx, ty2)]]
             stroke(pts, acol, awd)
-            head((tx, ty2), (ox, ty2), acol)
-            d.ellipse((fx-9,fy-9,fx+9,fy+9), fill=(255,255,255), outline=acol, width=4)
-            d.ellipse((tx-7,ty-7,tx+7,ty+7), fill=acol, outline=(255,255,255), width=3)
+            head(pts[-1], pts[-2], acol)
+            if horiz:
+                xs = [p[0] for p in pts]; ys = [p[1] for p in pts]
+                occupied.append((min(xs),min(ys),max(xs),max(ys)))
+            dot(fx, fy, 9, (255,255,255), acol, 4)
+            dot(tx, ty, 7, acol, (255,255,255), 3)
             lx = ox + 16 if side == "right" else ox - 16 - lw_
             ly = _label_clear(lx, (fy2+ty2)/2 - 8)
-            d.text((lx, ly), label, font=f_cap, fill=acol if kind!="loop" else GREY)
+            dtext(lx, ly, label, f_cap, acol if kind!="loop" else GREY)
 
     # ---------- markers / boxes / text ----------
+    # Every item's (cx=n, y=t) anchor is transposed to screen (sx,sy) right here — the
+    # single draw-time transpose (brief pass2b #1). Text-bearing boxes then render
+    # LITERALLY at (sx,sy,sx+w,sy+h): text can't rotate, so w/h (screen width/height)
+    # never swap here, only the anchor moves — the axis-conditional lives upstream in
+    # q_extent()/q_extent_any() and the node/stub/ending cursor-advance, not in this loop.
     for p in P:
         kind, v, lid, cx, y, w, h = p["kind"], p["v"], p["lane"], p["cx"], p["y"], p["w"], p["h"]
+        sx, sy = XY(y, cx)
         if kind=="node":
             lines = wrap(v["body"], f_body, w-30)
-            d.rounded_rectangle((cx,y,cx+w,y+h), radius=12, fill=(255,255,255), outline=INK, width=3)
-            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=INK)
-            yy=y+40
-            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=INK); yy+=22
-            if v.get("cite"): d.text((cx+15,yy+2), v["cite"], font=f_cite, fill=GREY)
+            d.rounded_rectangle((sx,sy,sx+w,sy+h), radius=12, fill=(255,255,255), outline=INK, width=3)
+            d.text((sx+15,sy+10), tc(v["title"]), font=f_node, fill=INK)
+            yy=sy+40
+            for t in lines: d.text((sx+15,yy), t, font=f_body, fill=INK); yy+=22
+            if v.get("cite"): d.text((sx+15,yy+2), v["cite"], font=f_cite, fill=GREY)
         elif kind=="stub":
             lines = wrap(v.get("sub",""), f_body, w-30)
-            d.rounded_rectangle((cx,y,cx+w,y+h), radius=10, fill=D_FILL, outline=D_EDGE, width=3)
-            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=D_TEXT)
-            yy=y+40
-            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=D_TEXT); yy+=22
+            d.rounded_rectangle((sx,sy,sx+w,sy+h), radius=10, fill=D_FILL, outline=D_EDGE, width=3)
+            d.text((sx+15,sy+10), tc(v["title"]), font=f_node, fill=D_TEXT)
+            yy=sy+40
+            for t in lines: d.text((sx+15,yy), t, font=f_body, fill=D_TEXT); yy+=22
         elif kind=="ending":
             lines = wrap(v["body"], f_body, w-30)
             uncertain = v.get("uncertain")
             fill_c = (238,238,234) if uncertain else E_FILL
             edge_c = GREY if uncertain else E_EDGE
             text_c = GREY if uncertain else E_TEXT
-            d.rounded_rectangle((cx,y,cx+w,y+h), radius=12, fill=fill_c,
+            d.rounded_rectangle((sx,sy,sx+w,sy+h), radius=12, fill=fill_c,
                                 outline=edge_c, width=(1 if uncertain else 3))
             if uncertain:
-                stroke([(cx,y),(cx+w,y),(cx+w,y+h),(cx,y+h),(cx,y)], edge_c, 3, "dash")
-                d.text((cx+w-46,y+8), "?", font=F(34,bold=True), fill=edge_c)
-            d.text((cx+15,y+10), tc(v["title"]), font=f_node, fill=text_c)
-            yy=y+40
-            for t in lines: d.text((cx+15,yy), t, font=f_body, fill=text_c); yy+=22
-            if v.get("cite"): d.text((cx+15,yy+2), v["cite"], font=f_cite, fill=GREY)
+                stroke([(sx,sy),(sx+w,sy),(sx+w,sy+h),(sx,sy+h),(sx,sy)], edge_c, 3, "dash")
+                d.text((sx+w-46,sy+8), "?", font=F(34,bold=True), fill=edge_c)
+            d.text((sx+15,sy+10), tc(v["title"]), font=f_node, fill=text_c)
+            yy=sy+40
+            for t in lines: d.text((sx+15,yy), t, font=f_body, fill=text_c); yy+=22
+            if v.get("cite"): d.text((sx+15,yy+2), v["cite"], font=f_cite, fill=GREY)
         elif kind=="split":
             sl = g["splits"][v]
             r=30
-            d.ellipse((cx-r,y-r,cx+r,y+r), fill=S_FILL, outline=S_EDGE, width=4)
+            d.ellipse((sx-r,sy-r,sx+r,sy+r), fill=S_FILL, outline=S_EDGE, width=4)
             letter=sl["letter"]
-            d.text((cx-tw(letter,f_big)/2, y-18), letter, font=f_big, fill=S_TEXT)
+            d.text((sx-tw(letter,f_big)/2, sy-18), letter, font=f_big, fill=S_TEXT)
             cap_lines = []
             for part in sl["caption"].split("\n"):
-                cap_lines += wrap(tc(part), f_cap, max(200, W-80-(cx+44)))
+                cap_lines += wrap(tc(part), f_cap, max(200, img_w-80-(sx+44)))
             for i,cl in enumerate(cap_lines):
-                d.text((cx+44, y-12+i*24), cl, font=f_cap, fill=GREY)
+                d.text((sx+44, sy-12+i*24), cl, font=f_cap, fill=GREY)
         elif kind=="join":
             j = g["joins"][v]
-            d.ellipse((cx-13, y-13, cx+13, y+13), fill=nt["join"]["color"], outline=(255,255,255), width=3)
+            d.ellipse((sx-13, sy-13, sx+13, sy+13), fill=nt["join"]["color"], outline=(255,255,255), width=3)
             side = j.get("side","right")
             lw = tw(j["label"], f_cap)
             lbl = tc(j["label"])
             lw = tw(lbl, f_cap)
-            if side=="left" and cx-18-lw < 8: side = "right"   # auto-flip: don't clip at edge
-            if side=="left": d.text((cx-18-lw, y-30), lbl, font=f_cap, fill=nt["join"]["color"])
-            else: d.text((cx+18, y-30), lbl, font=f_cap, fill=nt["join"]["color"])
+            if side=="left" and sx-18-lw < 8: side = "right"   # auto-flip: don't clip at edge
+            if side=="left": d.text((sx-18-lw, sy-30), lbl, font=f_cap, fill=nt["join"]["color"])
+            else: d.text((sx+18, sy-30), lbl, font=f_cap, fill=nt["join"]["color"])
         elif kind=="beat":
             if isinstance(v,str): v={"beat":v}
             tone=v.get("tone"); col=GREY
@@ -816,58 +917,65 @@ def build(g, style="classic", density="normal"):
             if certainty and style in ("classic","weight"):
                 col = CERTAINTY_COLOR[certainty]
             side=v.get("side","right")
-            d.ellipse((cx-5,y-5,cx+5,y+5), fill=col)
+            d.ellipse((sx-5,sy-5,sx+5,sy+5), fill=col)
             txt=v["beat"]+(f" ({v['cite']})" if v.get("cite") else "")
             txt = tc(txt)
             blines = wrap(txt, f_beat, LANE_W-40)
+            # label_w/h + lx0 approximate the full label footprint (text plus room
+            # for a trailing certainty glyph/screen chip) so _place_perp's collision
+            # check doesn't undersize the box it's clearing.
+            label_w = max((tw(bl,f_beat) for bl in blines), default=0)
+            label_h = 20*len(blines)+6
+            lx0 = sx+16 if side=="right" else sx-16-label_w-60
+            ly0 = _place_perp(lx0, sy, label_w+60, label_h)
             for i,bline in enumerate(blines):
-                if side=="right": d.text((cx+16, y-10+i*20), bline, font=f_beat, fill=col)
-                else: d.text((cx-16-tw(bline,f_beat), y-10+i*20), bline, font=f_beat, fill=col)
+                if side=="right": d.text((sx+16, ly0+i*20), bline, font=f_beat, fill=col)
+                else: d.text((sx-16-tw(bline,f_beat), ly0+i*20), bline, font=f_beat, fill=col)
             tail_w = max((tw(bl,f_beat) for bl in blines), default=0)
-            tail_x = cx+16+tail_w if side=="right" else cx-16-tail_w
+            tail_x = sx+16+tail_w if side=="right" else sx-16-tail_w
             if certainty and style in ("dash","tape"):
                 gx = tail_x+10 if side=="right" else tail_x-20
-                d.text((gx, y-10), CERTAINTY_GLYPH[certainty], font=f_cite, fill=GREY)
+                d.text((gx, ly0), CERTAINTY_GLYPH[certainty], font=f_cite, fill=GREY)
                 tail_x = gx + (16 if side=="right" else -4)
             if v.get("screen"):
                 chip_lbl = v["screen"].upper()
                 chip_w = tw(chip_lbl, f_cite)+10
                 chx = tail_x+8 if side=="right" else tail_x-chip_w-8
-                d.rounded_rectangle((chx, y-9, chx+chip_w, y+9), radius=4, fill=YELLOW, outline=YE, width=1)
-                d.text((chx+5, y-8), chip_lbl, font=f_cite, fill=YTXT)
+                d.rounded_rectangle((chx, ly0+1, chx+chip_w, ly0+19), radius=4, fill=YELLOW, outline=YE, width=1)
+                d.text((chx+5, ly0+2), chip_lbl, font=f_cite, fill=YTXT)
         elif kind=="chip":
             if isinstance(v,str): v={"chip":v}
             fill=CHDIM if v.get("dim") else CH
             chip_txt = tc(v["chip"])
             clines = wrap(chip_txt, f_chip, LANE_W-30)
             wid=int(max(tw(l,f_chip) for l in clines))+20
-            d.rounded_rectangle((cx+16,y,cx+16+wid,y+30*len(clines)), radius=6, fill=fill)
+            d.rounded_rectangle((sx+16,sy,sx+16+wid,sy+30*len(clines)), radius=6, fill=fill)
             for i,cline in enumerate(clines):
-                d.text((cx+26,y+4+i*30), cline, font=f_chip, fill=(255,255,255))
+                d.text((sx+26,sy+4+i*30), cline, font=f_chip, fill=(255,255,255))
         elif kind=="segment":
             txt=v if isinstance(v,str) else v.get("segment","")
             txt = tc(txt)
             slines2 = wrap(txt, f_seg, LANE_W-30)
             wid=int(max(tw(l,f_seg) for l in slines2))+20
-            d.rounded_rectangle((cx+16,y,cx+16+wid,y+30*len(slines2)), radius=6, fill=SEGF)
+            d.rounded_rectangle((sx+16,sy,sx+16+wid,sy+30*len(slines2)), radius=6, fill=SEGF)
             for i,sline in enumerate(slines2):
-                d.text((cx+26,y+5+i*30), sline, font=f_seg, fill=(255,255,255))
+                d.text((sx+26,sy+5+i*30), sline, font=f_seg, fill=(255,255,255))
         elif kind=="laneborn":
             nb=v
             chip_txt = tc(nb["chip"])
             nlines = wrap(chip_txt, f_chip, LANE_W-40)
             wid=int(max(tw(l,f_chip) for l in nlines))+20
-            d.rounded_rectangle((cx+16,y,cx+16+wid,y+30*len(nlines)), radius=6, fill=CHDIM)
+            d.rounded_rectangle((sx+16,sy,sx+16+wid,sy+30*len(nlines)), radius=6, fill=CHDIM)
             for i,nline in enumerate(nlines):
-                d.text((cx+26,y+4+i*30), nline, font=f_chip, fill=(255,255,255))
+                d.text((sx+26,sy+4+i*30), nline, font=f_chip, fill=(255,255,255))
             if nb.get("note"):
-                ny = y + 30*len(nlines) + 8
+                ny = sy + 30*len(nlines) + 8
                 for i,t in enumerate(wrap(tc(nb["note"]), f_note, LANE_W-40)):
-                    d.text((cx+16, ny+i*24), t, font=f_note, fill=GREY)
+                    d.text((sx+16, ny+i*24), t, font=f_note, fill=GREY)
 
     # ---------- legend follows content ----------
-    ry = y_bot + 60
-    d.rounded_rectangle((40, ry, W-40, ry+28*len(legend_lines)+70), radius=10,
+    ry = content_screen_y + 60
+    d.rounded_rectangle((40, ry, img_w-40, ry+28*len(legend_lines)+70), radius=10,
                         fill=(255,255,255), outline=INK, width=2)
     d.text((60, ry+12), "The Index / How to Read", font=F(20,bold=True), fill=INK)
     yy=ry+48
@@ -882,6 +990,7 @@ if __name__ == "__main__":
     ap.add_argument("graph"); ap.add_argument("-o","--out",default=None)
     ap.add_argument("--style", default="classic", choices=["classic","weight","dash","tape"])
     ap.add_argument("--density", default="normal", choices=["compact","normal"])
+    ap.add_argument("--orientation", default="vertical", choices=["vertical","horizontal"])
     a = ap.parse_args()
     g = json.load(open(a.graph))
     errs = validate(g)
@@ -890,6 +999,6 @@ if __name__ == "__main__":
         for e in errs: print("  -", e)
         sys.exit(2)
     out = a.out or a.graph.replace(".json", f"-{a.style}.png")
-    img = build(g, a.style, density=a.density)
+    img = build(g, a.style, density=a.density, orientation=a.orientation)
     img.save(out, "PNG")
     print("saved", out, img.size)

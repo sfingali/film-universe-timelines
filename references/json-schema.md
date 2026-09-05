@@ -87,7 +87,7 @@ The JSON is the story. The engine validates then renders. Version: v4 engine.
 
 `meta.travellers` also appends a **survivor census** line to the legend — engine-computed occupancy at the ending, e.g. `2× Abe, 3× Aaron alive at the ending` (Clawz114's closing note, made computable). Absent travellers → no census, no change.
 
-CLI: `--density compact|normal` (default `normal` — byte-identical to the v4 look; `compact` tightens rhythm/lane-gap/stub offset toward the reference-chart density). Horizontal orientation is a separate pass (see `references/output-redesign-decisions.md`).
+CLI: `--density compact|normal` (default `normal` — byte-identical to the v4 look; `compact` tightens rhythm/lane-gap/stub offset toward the reference-chart density) and `--orientation vertical|horizontal` (default `vertical`; horizontal = time flows left→right, universes as rows stacked top→bottom — the native form of the fan-made Primer charts).
 
 ## Validation rules (enforced, exit 2)
 
