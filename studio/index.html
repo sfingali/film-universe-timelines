@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Timeline Studio — film-universe-timelines</title>
+<style>
+:root{
+  --bg:#141518; --panel:#1c1e23; --panel2:#22252b; --line:#33363e; --txt:#e6e4df; --dim:#8b8e96;
+  --acc:#5fae7c; --accdim:#2c4a38; --warn:#c96f5f; --warnbg:#3a2723; --sel:#3d5a48; --chip:#2b3f55;
+}
+*{box-sizing:border-box} html,body{height:100%}
+body{margin:0;background:var(--bg);color:var(--txt);font:14px/1.45 "DejaVu Sans",system-ui,sans-serif;display:flex;flex-direction:column}
+header{display:flex;gap:10px;align-items:center;padding:8px 12px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+header b{font-size:15px;letter-spacing:.4px}
+header .sp{flex:1}
+select,input[type=text],input[type=number],textarea{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px 7px;font:inherit}
+textarea{width:100%;resize:vertical}
+button{background:var(--panel2);color:var(--txt);border:1px solid var(--line);border-radius:5px;padding:4px 10px;font:inherit;cursor:pointer}
+button:hover{border-color:var(--acc)} button.primary{background:var(--accdim);border-color:var(--acc)}
+button.mini{padding:1px 7px;font-size:12px}
+button:disabled{opacity:.4;cursor:default}
+main{flex:1;display:flex;min-height:0}
+/* ---- left: story board ---- */
+#board{width:390px;min-width:300px;background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column}
+#lanes{flex:1;overflow:auto;padding:10px;display:flex;gap:10px;align-items:flex-start}
+.lane{background:var(--panel2);border:1px solid var(--line);border-radius:8px;min-width:150px;width:170px;flex:0 0 auto;display:flex;flex-direction:column}
+.lane-head{display:flex;align-items:center;gap:4px;padding:6px 8px;border-bottom:1px solid var(--line)}
+.lane-head .lname{font-weight:bold;color:var(--acc);cursor:text;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lane-items{padding:6px;display:flex;flex-direction:column;gap:5px;min-height:30px}
+.item{background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 7px;cursor:grab;position:relative}
+.item.sel{outline:2px solid var(--acc)}
+.item .k{font-size:10px;letter-spacing:1px;color:var(--dim);text-transform:uppercase}
+.item .t{font-size:13px}
+.item[data-kind=split]{border-color:#8a7b3f;background:#26231a}
+.item[data-kind=stub]{border-color:#7a4040;background:#2a1d1d}
+.item[data-kind=ending]{border-color:#3f7a52;background:#1a2a20}
+.item[data-kind=join]{cursor:not-allowed;opacity:.85}
+.item .x{position:absolute;top:2px;right:4px;color:var(--dim);cursor:pointer;font-size:12px;display:none}
+.item:hover .x{display:block}
+.lane-add{padding:6px;display:flex;gap:4px;flex-wrap:wrap;border-top:1px dashed var(--line)}
+.lane-add select{max-width:120px;font-size:12px}
+.drop-before{box-shadow:0 -3px 0 0 var(--acc)} .drop-after{box-shadow:0 3px 0 0 var(--acc)}
+/* ---- center: canvas ---- */
+#view{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
+#viewbar{display:flex;gap:8px;align-items:center;padding:6px 10px;border-bottom:1px solid var(--line);background:var(--panel)}
+#imgwrap{flex:1;overflow:auto;background:#0e0f11;position:relative;min-width:0}
+#stage{position:relative;transform-origin:0 0;width:max-content}
+#chart{display:block;max-width:none}
+.hb{position:absolute;border:1px solid transparent;border-radius:4px;cursor:pointer}
+.hb:hover{border-color:var(--acc);background:rgba(95,174,124,.12)}
+.hb.sel{border-color:var(--acc);background:rgba(95,174,124,.18)}
+/* ---- right: inspector ---- */
+#side{width:330px;min-width:280px;background:var(--panel);border-left:1px solid var(--line);display:flex;flex-direction:column}
+#tabs{display:flex;border-bottom:1px solid var(--line)}
+#tabs button{flex:1;border:none;border-radius:0;background:none;padding:8px 4px;color:var(--dim)}
+#tabs button.on{color:var(--txt);background:var(--panel2);box-shadow:inset 0 -2px 0 var(--acc)}
+.pane{flex:1;overflow:auto;padding:12px;display:none}
+.pane.on{display:block}
+.field{margin-bottom:10px}
+.field label{display:block;font-size:11px;letter-spacing:.8px;text-transform:uppercase;color:var(--dim);margin-bottom:3px}
+.field input[type=text],.field input[type=number],.field select,.field textarea{width:100%}
+.row2{display:flex;gap:8px}.row2 .field{flex:1}
+.errbox{background:var(--warnbg);border:1px solid var(--warn);border-radius:6px;padding:8px 10px;margin:8px 10px;display:none}
+.errbox div{color:#f0c9c0;font-size:13px}
+#saveas{display:none;gap:6px;margin:8px 10px;align-items:center}
+h3{margin:2px 0 10px;font-size:13px;letter-spacing:1px;text-transform:uppercase;color:var(--dim)}
+.jrow,.trrow,.thrrow{display:flex;gap:4px;align-items:center;margin-bottom:6px}
+.jrow select,.jrow input,.thrrow input,.trrow input{min-width:0}
+.jrow{flex-wrap:wrap}
+.thrrow .grip{color:var(--dim);cursor:grab}
+.hint{color:var(--dim);font-size:12px;margin:6px 0}
+kbd{background:var(--panel2);border:1px solid var(--line);border-radius:3px;padding:0 4px;font-size:11px}
+#status{padding:4px 12px;font-size:12px;color:var(--dim);background:var(--panel);border-top:1px solid var(--line)}
+</style>
+</head>
+<body>
+<header>
+  <b>TIMELINE STUDIO</b>
+  <select id="exampleSel"></select>
+  <span class="sp"></span>
+  <label style="color:var(--dim)">style</label>
+  <select id="styleSel"><option>classic</option><option>weight</option><option>dash</option><option>tape</option></select>
+  <label style="color:var(--dim)">orient</label>
+  <select id="orientSel"><option>vertical</option><option>horizontal</option></select>
+  <button id="undoBtn" class="mini" title="Ctrl+Z">&#8630; undo</button>
+  <button id="redoBtn" class="mini" title="Ctrl+Shift+Z">&#8631; redo</button>
+  <button id="downloadBtn" class="mini">&#8595; JSON</button>
+  <button id="saveBtn" class="primary">Save</button>
+</header>
+<div class="errbox" id="errbox"></div>
+<div id="saveas">
+  <label style="color:var(--dim)">save as</label>
+  <input type="text" id="saveasName" style="width:180px">
+  <button id="saveasGo" class="primary">Save copy</button>
+  <button id="saveasCancel">cancel</button>
+</div>
+<main>
+  <div id="board">
+    <div style="padding:8px 10px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:6px">
+      <h3 style="flex:1;margin:0">Story board</h3>
+      <button id="addLaneBtn" class="mini">+ lane</button>
+    </div>
+    <div id="lanes"></div>
+    <div class="hint" style="padding:6px 10px;border-top:1px solid var(--line)">
+      drag cards to reorder / move between lanes · <kbd>Del</kbd> removes selected · join items are managed in the Joins tab
+    </div>
+  </div>
+  <div id="view">
+    <div id="viewbar">
+      <button id="zoomOut" class="mini">&#8722;</button>
+      <span id="zoomLbl" style="color:var(--dim);min-width:44px;text-align:center">100%</span>
+      <button id="zoomIn" class="mini">+</button>
+      <button id="zoomFit" class="mini">fit</button>
+      <span class="sp" style="flex:1"></span>
+      <span id="renderState" style="color:var(--dim)"></span>
+    </div>
+    <div id="imgwrap"><div id="stage"><img id="chart" alt="chart"><div id="hblayer"></div></div></div>
+  </div>
+  <div id="side">
+    <div id="tabs">
+      <button data-tab="item" class="on">Item</button>
+      <button data-tab="joins">Joins</button>
+      <button data-tab="arcs">Arcs</button>
+      <button data-tab="thread">Thread</button>
+      <button data-tab="meta">Meta</button>
+    </div>
+    <div id="pane-item" class="pane on"><div class="hint">Select a card on the board or a box on the chart.</div></div>
+    <div id="pane-joins" class="pane"></div>
+    <div id="pane-arcs" class="pane"></div>
+    <div id="pane-thread" class="pane"></div>
+    <div id="pane-meta" class="pane"></div>
+  </div>
+</main>
+<div id="status"></div>
+<script>
+"use strict";
+/* ================= state ================= */
+const S = {graph:null, name:null, sel:null, drag:null, style:"classic", orient:"vertical",
+           history:[], future:[], zoom:1, tab:"item", lastPNG:null};
+const $ = id => document.getElementById(id);
+const esc = s => String(s==null?"":s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const KINDS = ["beat","split","stub","join","node","ending","laneborn","chip","segment","abandon","arc","mark"];
+const clone = o => JSON.parse(JSON.stringify(o));
+
+/* ================= helpers over the graph ================= */
+function lanes(){ return S.graph.lanes.map(l=>l.id); }
+function laneItems(lid){ return S.graph.lanes_content[lid] = S.graph.lanes_content[lid] || []; }
+function itemKind(it){ return Object.keys(it)[0]; }
+function itemVal(it){ return it[itemKind(it)]; }
+function nextSplitId(){
+  let n=1; const have=new Set(Object.keys(S.graph.splits||{}));
+  while(have.has(String(n))) n++;
+  return String(n);
+}
+function nextStubId(){
+  let n=1; const have=new Set(Object.keys(S.graph.stubs||{}));
+  while(have.has("stub-"+n)) n++;
+  return "stub-"+n;
+}
+function nextJoinId(){
+  let n=1; const have=new Set(Object.keys(S.graph.joins||{}));
+  while(have.has("join-"+n)) n++;
+  return "join-"+n;
+}
+function nextArcId(){
+  let n=1; const have=new Set(Object.keys(S.graph.arcs||{}));
+  while(have.has("a"+n)) n++;
+  return "a"+n;
+}
+function findItem(lane, idx){ return laneItems(lane)[idx]; }
+function ensureSplitsStubsJoinsArcs(){
+  for (const k of ["splits","stubs","joins","arcs"]) if (!S.graph[k]) S.graph[k]={};
+}
+function ensureMeta(){
+  if(!S.graph.meta) S.graph.meta={};
+  for (const k of ["title","subtitle","thread_label","footer"]) if (typeof S.graph.meta[k]!=="string") S.graph.meta[k]=S.graph.meta[k]||"";
+}
+
+/* ================= undo ================= */
+function commit(label){
+  const snap = JSON.stringify(S.graph);
+  if (S.history.length===0 || S.history[S.history.length-1].snap!==snap){
+    S.history.push({snap, label:label||"edit"});
+    if (S.history.length>120) S.history.shift();
+    S.future.length=0;
+  }
+  scheduleRender(); renderBoard(); renderSidePanes(); setDirty(true);
+}
+function undo(){
+  if (S.history.length<2) return;
+  const cur = S.history.pop();
+  S.future.push(cur);
+  S.graph = JSON.parse(S.history[S.history.length-1].snap);
+  afterTimeTravel("undo "+cur.label);
+}
+function redo(){
+  const nxt = S.future.pop();
+  if (!nxt) return;
+  S.history.push(nxt);
+  S.graph = JSON.parse(nxt.snap);
+  afterTimeTravel("redo "+nxt.label);
+}
+function afterTimeTravel(what){
+  S.history[S.history.length-1].label = what;
+  scheduleRender(); renderBoard(); renderSidePanes(); setDirty(true);
+  status(what);
+}
+function setDirty(v){ $("saveBtn").textContent = v ? "Save *" : "Save"; }
+
+/* ================= api ================= */
+async function api(path, body, method){
+  const opt = (method || body !== undefined)
+    ? {method: method || "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body||{})}
+    : {};
+  const r = await fetch(path, opt);
+  return r.json();
+}
+async function loadExample(name){
+  const d = await api("/api/graph?name="+encodeURIComponent(name));
+  if (!d.graph){ status("load failed: "+(d.errors||[]).join("; ")); return; }
+  S.graph = d.graph; S.name = name; S.history=[{snap:JSON.stringify(S.graph),label:"load"}];
+  S.future=[]; S.sel=null; setDirty(false);
+  ensureSplitsStubsJoinsArcs(); ensureMeta();
+  renderBoard(); renderSidePanes(); scheduleRender();
+  status("loaded "+name+(d.errors.length? " — "+d.errors.length+" validation errors":""));
+}
+
+/* ================= render (engine) ================= */
+let renderTimer=null, renderSeq=0;
+function scheduleRender(){ clearTimeout(renderTimer); renderTimer=setTimeout(doRender, 350); }
+async function doRender(){
+  if (!S.graph) return;
+  const seq = ++renderSeq;
+  $("renderState").textContent = "rendering…";
+  const d = await api("/api/render", {graph:S.graph, style:S.style, orientation:S.orient});
+  if (seq!==renderSeq) return;                 // stale response
+  if (d.errors && d.errors.length){
+    $("errbox").style.display="block";
+    $("errbox").innerHTML = d.errors.map(e=>"<div>"+esc(e)+"</div>").join("");
+    $("renderState").textContent = "INVALID — showing last good render";
+    return;
+  }
+  $("errbox").style.display="none";
+  S.lastPNG = d.png_b64;
+  $("chart").src = "data:image/png;base64,"+d.png_b64;
+  drawHitboxes(d.hitboxes||[]);
+  $("renderState").textContent = "rendered "+S.style+" · "+S.orient;
+}
+function drawHitboxes(hbs){
+  const layer = $("hblayer"); layer.innerHTML="";
+  for (const hb of hbs){
+    const div = document.createElement("div");
+    div.className = "hb" + (selMatches(hb)?" sel":"");
+    div.dataset.kind = hb.kind; div.dataset.id = hb.id; div.dataset.lane = hb.lane||"";
+    div.title = hb.kind+": "+hb.label;
+    const [x0,y0,x1,y1] = hb.rect;
+    div.style.left=(x0-4)+"px"; div.style.top=(y0-4)+"px";
+    div.style.width=(x1-x0+8)+"px"; div.style.height=(y1-y0+8)+"px";
+    layer.appendChild(div);
+  }
+}
+function selMatches(hb){
+  if (!S.sel) return false;
+  if (S.sel.type==="lane-item"){
+    const it = findItem(S.sel.lane, S.sel.idx);
+    if (!it) return false;
+    const k = itemKind(it), v = itemVal(it);
+    const vid = (k==="node") ? (typeof v==="object"? v.id : v) : (k==="stub"? (typeof v==="object"? (v.__ref||"") : v) : null);
+    if (hb.kind==="split" && k==="split") return String(v)===hb.id;
+    if (hb.kind==="join" && k==="join") return String(v)===hb.id;
+    if ((hb.kind==="arc"||hb.kind==="mark") && k===hb.kind) return String(v).replace(/^(arc|mark):/,"")===hb.id.replace(/^(arc|mark):/,"");
+    if (hb.kind==="node" && k==="node") return vid===hb.id;
+    if (hb.kind==="stub" && k==="stub") return (typeof v==="object" && v.__ref===hb.id) || v===hb.id;
+    if (hb.kind==="ending" && k==="ending") return true;
+  }
+  return false;
+}
+
+/* ================= board (left) ================= */
+function itemCard(it, lane, idx){
+  const k = itemKind(it); let v = it[k], title="", sub="";
+  if (k==="beat" && typeof v==="object"){ title=v.beat||""; sub=[v.cite, v.certainty, v.screen].filter(Boolean).join(" · "); }
+  else if (k==="beat"){ title=String(v); }
+  else if (k==="split"){ const s=S.graph.splits[v]; title="#"+v; sub=s? s.caption.split("\n")[0]:"(missing split def)"; }
+  else if (k==="stub"){ const s=(typeof v==="object")? v : S.graph.stubs[v]; title=s? s.title:"(stub)"; sub=s? s.sub:""; if(typeof v==="object") title+=" *"; }
+  else if (k==="join"){ const j=S.graph.joins[v]; title="→ "+(j? j.to_lane:"?"); sub=j? j.label:""; }
+  else if (k==="node"){ const n0=S.graph.nodes.find(n0=>n0.id===v); title=n0? n0.title:"(node)"; }
+  else if (k==="ending"){ title=v.title||"ENDING"; sub=v.uncertain? "? uncertain":""; }
+  else if (k==="laneborn"){ title=v.chip; sub=v.note||""; }
+  else if (k==="chip"){ title=typeof v==="object"? v.chip:v; }
+  else if (k==="segment"){ title=typeof v==="object"? v.segment:v; }
+  else if (k==="abandon"){ title="runs on · "+v+"px"; }
+  else if (k==="arc"||k==="mark"){ title=(k==="arc"?"depart ":"arrive ")+v; sub=(S.graph.arcs[v]||{}).label||""; }
+  return '<div class="item'+(S.sel&&S.sel.type==="lane-item"&&S.sel.lane===lane&&S.sel.idx===idx?" sel":"")+'" '
+    +'draggable="true" data-kind="'+esc(k)+'" data-lane="'+esc(lane)+'" data-idx="'+idx+'" '
+    +'title="'+esc(k)+' — drag to move">'
+    +'<div class="k">'+esc(k)+'</div><div class="t">'+esc(title)+'</div>'+(sub?'<div class="k">'+esc(sub)+'</div>':"")
+    +'<span class="x" data-del="1" title="remove">✕</span></div>';
+}
+function renderBoard(){
+  if (!S.graph) return;
+  const host = $("lanes"); host.innerHTML="";
+  for (const l of S.graph.lanes){
+    const lid = l.id;
+    const col = document.createElement("div"); col.className="lane"; col.dataset.lane=lid;
+    const items = laneItems(lid);
+    col.innerHTML =
+      '<div class="lane-head">'
+      +'<span class="lname" title="click to rename">'+esc(l.label||lid)+'</span>'
+      +'<button class="mini" data-lane-act="left" title="move lane left (flow direction)">◄</button>'
+      +'<button class="mini" data-lane-act="right" title="move lane right">►</button>'
+      +'<button class="mini" data-lane-act="del" title="delete lane (must be empty)">✕</button>'
+      +'</div>'
+      +'<div class="lane-items">'+ items.map((it,i)=>itemCard(it,lid,i)).join("") +'</div>'
+      +'<div class="lane-add">'
+      +'<select data-addsel="'+esc(lid)+'">'
+      +'<option value="">add…</option>'
+      +'<option value="beat">beat</option><option value="split">split</option><option value="stub">stub</option>'
+      +'<option value="ending">ending</option><option value="laneborn">already-running</option>'
+      +'<option value="chip">chip</option><option value="segment">segment</option><option value="abandon">runs-on tail</option>'
+      +'<option value="arcitem">trip departure</option><option value="markitem">trip arrival</option>'
+      +'</select></div>';
+    host.appendChild(col);
+  }
+  $("exampleSel").value = S.name||"";
+}
+function laneHeaderActions(e){
+  const b = e.target.closest("button[data-lane-act]"); if(!b) return;
+  const lane = b.closest(".lane").dataset.lane;
+  const idx = lanes().indexOf(lane);
+  const act = b.dataset.laneAct;
+  if (act==="left" && idx>0){
+    const L=S.graph.lanes; [L[idx-1],L[idx]]=[L[idx],L[idx-1]]; commit("move lane");
+  } else if (act==="right" && idx<S.graph.lanes.length-1){
+    const L=S.graph.lanes; [L[idx+1],L[idx]]=[L[idx],L[idx+1]]; commit("move lane");
+  } else if (act==="del"){
+    if (laneItems(lane).length) { status("lane not empty — remove its items first"); return; }
+    if (S.graph.lanes.length<=1) { status("cannot delete the last lane"); return; }
+    S.graph.lanes.splice(idx,1); delete S.graph.lanes_content[lane]; S.sel=null; commit("delete lane");
+  }
+}
+function laneRename(e){
+  const sp = e.target.closest(".lname"); if(!sp) return;
+  const lane = sp.closest(".lane").dataset.lane;
+  const v = prompt("lane id (short, unique) + label (shown)", (S.graph.lanes.find(x=>x.id===lane).label||lane));
+  if (v===null) return;
+  const L = S.graph.lanes.find(x=>x.id===lane);
+  L.label = v.trim() || lane;
+  commit("rename lane");
+}
+function addItem(lane, kind){
+  ensureSplitsStubsJoinsArcs();
+  const items = laneItems(lane);
+  if (kind==="beat") items.push({beat:"new beat"});
+  else if (kind==="split"){ const id=nextSplitId(); S.graph.splits[id]={letter:id,caption:"NEW SPLIT — EDIT ME"}; items.push({split:id}); S.sel={type:"lane-item",lane,idx:items.length-1}; }
+  else if (kind==="stub"){ const id=nextStubId(); S.graph.stubs[id]={title:id.replace("stub-","")+"B — He Dies","sub":"the tine where he dies"}; items.push({stub:id}); S.sel={type:"lane-item",lane,idx:items.length-1}; }
+  else if (kind==="ending") items.push({ending:{title:"Ending",body:"…",cite:"",uncertain:false}});
+  else if (kind==="laneborn") items.unshift({laneborn:{from_split:null,chip:lane+" — ALREADY RUNNING",note:"this world began long before the chart"}});
+  else if (kind==="chip") items.push({chip:"RUNS ON",dim:true});
+  else if (kind==="segment") items.push({segment:"SEGMENT — EDIT ME"});
+  else if (kind==="abandon") items.push({abandon:140});
+  else if (kind==="arcitem"||kind==="markitem"){
+    const ids = Object.keys(S.graph.arcs);
+    if (!ids.length){ status("no arcs yet — create one in the Arcs tab"); return; }
+    items.push(kind==="arcitem" ? {arc:ids[0]} : {mark:ids[0]});
+  }
+  commit("add "+kind);
+}
+function laneAdd(e){
+  const sel = e.target.closest("select[data-addsel]"); if(!sel||!sel.value) return;
+  addItem(sel.dataset.addsel, sel.value); sel.value="";
+}
+function delItem(lane, idx){
+  const items = laneItems(lane); const it = items[idx]; if(!it) return;
+  if (itemKind(it)==="join"){ status("join items are removed in the Joins tab"); return; }
+  items.splice(idx,1);
+  if (S.sel && S.sel.type==="lane-item" && S.sel.lane===lane && S.sel.idx===idx) S.sel=null;
+  commit("delete item");
+}
+/* ---- selection ---- */
+function selectLaneItem(lane, idx){
+  S.sel = {type:"lane-item", lane, idx};
+  renderBoard(); renderInspector(); doRender();   // doRender refreshes hitbox .sel
+  document.querySelectorAll("#lanes .item.sel").forEach(el=>el.scrollIntoView({block:"nearest"}));
+}
+/* ---- drag & drop ---- */
+function onDragStart(e){
+  const card = e.target.closest(".item[data-idx]"); if(!card) return;
+  if (card.dataset.kind==="join"){ e.preventDefault(); status("joins are moved via the Joins tab (they must live in to_lane)"); return; }
+  S.drag = {lane:card.dataset.lane, idx:+card.dataset.idx};
+  e.dataTransfer.effectAllowed="move";
+  try{ e.dataTransfer.setData("text/plain","item"); }catch(_){}
+}
+function dropTargetInfo(e){
+  const col = e.target.closest(".lane"); if(!col) return null;
+  const lane = col.dataset.lane;
+  const cards = [...col.querySelectorAll(".item[data-idx]")];
+  let idx = items_len(lane);
+  let pos = "after";
+  for (const c of cards){
+    const r = c.getBoundingClientRect();
+    if (e.clientY < r.top + r.height/2){ idx=+c.dataset.idx; pos="before"; break; }
+    if (e.clientY < r.bottom + 6){ idx=+c.dataset.idx+1; pos="after"; break; }
+  }
+  return {lane, idx, pos};
+}
+function items_len(l){ return laneItems(l).length; }
+function clearDropMarks(){ document.querySelectorAll(".drop-before,.drop-after").forEach(el=>el.classList.remove("drop-before","drop-after")); }
+function onDragOver(e){
+  if (!S.drag) return;
+  e.preventDefault();
+  clearDropMarks();
+  const t = dropTargetInfo(e); if(!t) return;
+  const col = document.querySelector('.lane[data-lane="'+CSS.escape(t.lane)+'"]');
+  const cards = [...col.querySelectorAll('.item[data-idx]')];
+  const before = cards.find(c=>+c.dataset.idx===t.idx && t.pos==="before");
+  const after  = cards.find(c=>+c.dataset.idx===t.idx-1 && t.pos==="after");
+  (before||after||col.querySelector(".lane-items")).classList.add(t.pos==="before"?"drop-before":"drop-after");
+}
+function onDrop(e){
+  if (!S.drag) return;
+  e.preventDefault();
+  clearDropMarks();
+  const t = dropTargetInfo(e); if(!t) return;
+  const {lane:from, idx:fi} = S.drag;
+  let ti = t.idx;
+  const items = laneItems(from);
+  const [moved] = items.splice(fi,1);
+  if (from===t.lane && fi < ti) ti--;
+  laneItems(t.lane).splice(ti,0,moved);
+  S.drag=null; S.sel=null;
+  commit("move item");
+}
+/* ================= inspector ================= */
+function field(label, inner){ return '<div class="field"><label>'+esc(label)+'</label>'+inner+'</div>'; }
+function selOpts(list, cur){
+  return list.map(v=>'<option value="'+esc(v)+'"'+(String(v)===String(cur)?" selected":"")+'>'+esc(v)+'</option>').join("");
+}
+function renderInspector(){
+  const pane = $("pane-item");
+  if (!S.sel || S.sel.type!=="lane-item"){ pane.innerHTML='<div class="hint">Select a card on the board or a box on the chart.</div>'; return; }
+  const it = findItem(S.sel.lane, S.sel.idx);
+  if (!it){ pane.innerHTML='<div class="hint">(item gone)</div>'; return; }
+  const k = itemKind(it); let v = it[k];
+  const travellers = Object.keys((S.graph.meta||{}).travellers||{});
+  const laneList = lanes();
+  let h = '<h3>'+esc(k)+' — '+esc(S.sel.lane)+' #'+S.sel.idx+'</h3>';
+  const bind = (name,val)=>'data-bind="'+esc(name)+'"';
+  if (k==="beat"){
+    const o = (typeof v==="object")? v : {beat:v};
+    h += field("text", '<textarea rows="2" data-bind="beat">'+esc(o.beat)+"</textarea>");
+    h += field("cite", '<input type="text" data-bind="cite" value="'+esc(o.cite||"")+'">');
+    h += '<div class="row2">'
+      + field("tone", '<select data-bind="tone"><option value="">—</option>'+selOpts(["death","good"],o.tone||"")+"</select>")
+      + field("side", '<select data-bind="side"><option value="">right</option>'+selOpts(["left"],o.side||"")+"</select>") + "</div>";
+    h += '<div class="row2">'
+      + field("screen", '<select data-bind="screen"><option value="">—</option>'+selOpts(["film","flashback","deduced"],o.screen||"")+"</select>")
+      + field("certainty", '<select data-bind="certainty"><option value="">—</option>'+selOpts(["seen","flashback","seen-later","never-shown"],o.certainty||"")+"</select>") + "</div>";
+    h += field("traveller", '<select data-bind="traveller"><option value="">—</option>'+selOpts(travellers,o.traveller||"")+"</select>");
+  } else if (k==="split"){
+    const s = S.graph.splits[v]||{letter:v,caption:""};
+    h += field("split id (scene #)", '<input type="text" data-bind="__splitid" value="'+esc(v)+'">');
+    h += field("caption", '<textarea rows="2" data-bind="caption">'+esc(s.caption)+"</textarea>");
+  } else if (k==="stub"){
+    const ref = (typeof v==="object")? v.__ref : v;
+    const s = (typeof v==="object")? v : (S.graph.stubs[v]||{});
+    h += field("stub def", '<select data-bind="__stubref">'+selOpts(Object.keys(S.graph.stubs),ref)+"</select>");
+    h += field("title", '<input type="text" data-bind="title" value="'+esc(s.title||"")+'">');
+    h += field("sub", '<textarea rows="2" data-bind="sub">'+esc(s.sub||"")+"</textarea>");
+  } else if (k==="ending"){
+    h += field("title", '<input type="text" data-bind="title" value="'+esc(v.title||"")+'">');
+    h += field("body", '<textarea rows="2" data-bind="body">'+esc(v.body||"")+"</textarea>");
+    h += field("cite", '<input type="text" data-bind="cite" value="'+esc(v.cite||"")+'">');
+    h += field("uncertain", '<select data-bind="uncertain"><option value="false"'+(!v.uncertain?" selected":"")+'>confident</option><option value="true"'+(v.uncertain?" selected":"")+'>? unresolved</option></select>');
+  } else if (k==="laneborn"){
+    h += field("chip", '<input type="text" data-bind="chip" value="'+esc(v.chip||"")+'">');
+    h += field("note", '<textarea rows="2" data-bind="note">'+esc(v.note||"")+"</textarea>");
+    h += field("born from split (— = already running)", '<select data-bind="from_split"><option value="">— already running</option>'+selOpts(Object.keys(S.graph.splits),v.from_split==null?"":v.from_split)+"</select>");
+  } else if (k==="chip"){
+    const o = (typeof v==="object")? v : {chip:v};
+    h += field("text", '<input type="text" data-bind="chip" value="'+esc(o.chip)+'">');
+    h += field("dim", '<select data-bind="dim"><option value="false"'+(!o.dim?" selected":"")+'>bright</option><option value="true"'+(o.dim?" selected":"")+'>dim</option></select>');
+  } else if (k==="segment"){
+    h += field("text", '<input type="text" data-bind="segment" value="'+esc(typeof v==="object"? v.segment : v)+'">');
+  } else if (k==="abandon"){
+    h += field("tail length px (60–320)", '<input type="number" min="60" max="320" data-bind="abandon" value="'+esc(v)+'">');
+  } else if (k==="arc" || k==="mark"){
+    h += field("arc", '<select data-bind="__arcitem">'+selOpts(Object.keys(S.graph.arcs), v)+"</select>");
+    h += '<div class="hint">'+(k==="arc" ? "the departure dot — keep it in this lane (the arc's from_lane)" : "the arrival dot — keep it in the arc's to_lane")+". Edit the trip in the Arcs tab.</div>";
+  } else if (k==="node"){
+    const n0 = S.graph.nodes.find(n0=>n0.id===v) || {};
+    h += field("title", '<input type="text" data-bind="title" value="'+esc(n0.title||"")+'">');
+    h += field("body", '<textarea rows="2" data-bind="body">'+esc(n0.body||"")+"</textarea>");
+    h += field("cite", '<input type="text" data-bind="cite" value="'+esc(n0.cite||"")+'">');
+  } else if (k==="join"){
+    h += '<div class="hint">Joins are edited in the <b>Joins</b> tab (a join item must live in its to_lane).</div>';
+  }
+  h += '<div class="row2">'
+    + field("move to lane", '<select data-act="movelane">'+selOpts(laneList, S.sel.lane)+"</select>")
+    + '<div class="field"><label>&nbsp;</label><button data-act="dup">duplicate</button></div></div>';
+  pane.innerHTML = h;
+}
+function inspectorApply(e){
+  const el = e.target.closest("[data-bind],[data-act]"); if(!el) return;
+  if (!S.sel || S.sel.type!=="lane-item") return;
+  const it = findItem(S.sel.lane, S.sel.idx); if(!it) return;
+  const k = itemKind(it); let v = it[k];
+  if (el.dataset.act==="movelane"){
+    const to = el.value; if (to===S.sel.lane) return;
+    if (k==="join"){ status("joins move via the Joins tab"); renderInspector(); return; }
+    laneItems(S.sel.lane).splice(S.sel.idx,1);
+    laneItems(to).push(it);
+    S.sel.lane=to; S.sel.idx=items_len(to)-1;
+    commit("move item"); return;
+  }
+  if (el.dataset.act==="dup"){
+    const copy = clone(it);
+    laneItems(S.sel.lane).splice(S.sel.idx+1,0,copy);
+    commit("duplicate"); return;
+  }
+  const b = el.dataset.bind;
+  const get0 = () => (typeof v==="object"? v : (it[k]=v={[k]: v}));
+  if (b==="__splitid"){
+    const nid = el.value.trim(); if(!nid || nid===String(v)) return;
+    if (S.graph.splits[nid]){ status("split id exists"); return; }
+    S.graph.splits[nid] = S.graph.splits[v]; delete S.graph.splits[v];
+    // repoint references
+    for (const l of lanes()) for (const x of laneItems(l)) if (x.split===String(v)) x.split=nid;
+    for (const jid of Object.keys(S.graph.joins)) if (S.graph.joins[jid].from_split===String(v)) S.graph.joins[jid].from_split=nid;
+    for (const x of lanes().flatMap(l=>laneItems(l))) if (x.laneborn && x.laneborn.from_split===String(v)) x.laneborn.from_split=nid;
+    v = nid; commit("rename split"); return;
+  }
+  if (b==="__stubref"){
+    const ref = el.value; it.stub = ref; commit("relink stub"); return;
+  }
+  if (b==="__arcitem"){ it[k] = el.value; commit("relink trip"); return; }
+  const val = el.value;
+  if (k==="beat"){
+    const o = get0();
+    if (b==="beat") o.beat = val;
+    else if (["cite","tone","side","screen","certainty","traveller"].includes(b)) { if(val==="") delete o[b]; else o[b]=val; }
+    it.beat = o; // keep flat
+  } else if (k==="split"){ S.graph.splits[String(v)][b] = val; }
+  else if (k==="stub"){
+    const ref = (typeof it.stub==="object")? it.stub.__ref : it.stub;
+    const def = (typeof it.stub==="object")? it.stub : (it.stub = clone(S.graph.stubs[ref]||{}));
+    def[b] = val; S.graph.stubs[ref] = def;
+  }
+  else if (k==="ending"){ v[b] = (b==="uncertain")? (val==="true") : val; }
+  else if (k==="laneborn"){ v[b] = (b==="from_split")? (val||null) : val; }
+  else if (k==="chip"){ const o=get0(); if(b==="dim") o.dim = (val==="true"); else o.chip=val; }
+  else if (k==="segment"){ const o=get0(); o.segment=val; }
+  else if (k==="abandon"){ it.abandon = Math.max(60, Math.min(320, +val||140)); }
+  else if (k==="node"){
+    const n0 = S.graph.nodes.find(n0=>n0.id===v); if(n0) n0[b]=val;
+  }
+  commit("edit "+k);
+}
+
+/* ================= joins tab ================= */
+function renderJoins(){
+  const p = $("pane-joins");
+  const splits = Object.keys(S.graph.splits||{});
+  let h = "<h3>Joins — entering an already-running world</h3>"
+    + '<div class="hint">A join runs down-then-across from its split into to_lane; the join item must live in to_lane (the engine enforces it). Add a join here and the item is placed for you.</div>';
+  const jids = Object.keys(S.graph.joins||{});
+  if (!jids.length) h += '<div class="hint">No joins yet.</div>';
+  for (const jid of jids){
+    const j = S.graph.joins[jid];
+    h += '<div class="jrow" data-jid="'+esc(jid)+'">'
+      + '<b style="min-width:64px">'+esc(jid)+'</b>'
+      + '<select data-j="from_split">'+selOpts(splits, j.from_split)+"</select>"
+      + '<span style="color:var(--dim)">→</span>'
+      + '<select data-j="to_lane">'+selOpts(lanes(), j.to_lane)+"</select>"
+      + '<input type="text" data-j="label" placeholder="label" value="'+esc(j.label||"")+'" style="flex:1">'
+      + '<select data-j="side">'+selOpts(["left","right"], j.side||"left")+"</select>"
+      + '<button class="mini" data-jdel="1" title="delete join + its item">✕</button>'
+      + "</div>";
+  }
+  h += '<button id="addJoinBtn" class="primary">+ add join</button>';
+  p.innerHTML = h;
+}
+function joinsApply(e){
+  const row = e.target.closest(".jrow");
+  if (e.target.id==="addJoinBtn"){
+    ensureSplitsStubsJoinsArcs();
+    const splits = Object.keys(S.graph.splits);
+    if (!splits.length){ status("create a split first (board: add… → split)"); return; }
+    const jid = nextJoinId();
+    const from = splits[splits.length-1];
+    const to = lanes().find(l => l!==S.graph.splits[from].__lane) || lanes()[0];
+    S.graph.joins[jid] = {from_split:from, to_lane:to, side:"left", label:"enters "+to};
+    laneItems(to).push({join:jid});
+    S.sel=null; commit("add join"); return;
+  }
+  const del = e.target.closest("[data-jdel]");
+  if (del && row){
+    const jid = row.dataset.jid;
+    delete S.graph.joins[jid];
+    for (const l of lanes()){
+      const items = laneItems(l);
+      for (let i=items.length-1;i>=0;i--) if (items[i].join===jid) items.splice(i,1);
+    }
+    commit("delete join"); return;
+  }
+  if (row && e.target.dataset.j){
+    const jid = row.dataset.jid; const key = e.target.dataset.j;
+    const oldTo = S.graph.joins[jid].to_lane;
+    S.graph.joins[jid][key] = e.target.value;
+    if (key==="to_lane" && e.target.value!==oldTo){
+      for (const l of lanes()){
+        const items = laneItems(l);
+        const i = items.findIndex(x=>x.join===jid);
+        if (i>=0){ const [m]=items.splice(i,1); laneItems(e.target.value).push(m); }
+      }
+    }
+    commit("edit join");
+  }
+}
+
+/* ================= arcs tab ================= */
+function renderArcs(){
+  const p = $("pane-arcs");
+  const travellers = Object.keys((S.graph.meta||{}).travellers||{});
+  const llist = lanes();
+  let h = "<h3>Arcs — trips within/into worlds</h3>"
+    + '<div class="hint">Not new universes: the box rides inside the world-line. <b>interval</b> needs <i>meta.timescale</i> (Meta tab) and draws duration-as-geometry.</div>';
+  const aids = Object.keys(S.graph.arcs||{});
+  if (!aids.length) h += '<div class="hint">No arcs yet.</div>';
+  for (const aid of aids){
+    const a = S.graph.arcs[aid];
+    const iv = a.interval? a.interval.join(", ") : "";
+    h += '<div style="border:1px solid var(--line);border-radius:6px;padding:8px;margin-bottom:8px" data-aid="'+esc(aid)+'">'
+      + '<div class="row2">'+field("id",'<input type="text" data-a="__id" value="'+esc(aid)+'">')
+      + field("kind",'<select data-a="kind">'+selOpts(["travel","return","loop"],a.kind||"travel")+"</select>")+"</div>"
+      + '<div class="row2">'+field("from_lane",'<select data-a="from_lane">'+selOpts(llist,a.from_lane)+"</select>")
+      + field("to_lane",'<select data-a="to_lane">'+selOpts(llist,a.to_lane)+"</select>")+"</div>"
+      + field("label",'<input type="text" data-a="label" value="'+esc(a.label||"")+'">')
+      + '<div class="row2">'+field("side",'<select data-a="side">'+selOpts(["left","right"],a.side||"right")+"</select>")
+      + field("traveller",'<select data-a="traveller"><option value="">—</option>'+selOpts(travellers,a.traveller||"")+"</select>")+"</div>"
+      + '<div class="row2">'+field("interval (depart, arrive)",'<input type="text" data-a="interval" placeholder="16, 10" value="'+esc(iv)+'">')
+      + field("color r,g,b",'<input type="text" data-a="color" placeholder="200,120,40" value="'+esc((a.color||[]).join(", "))+'">')+"</div>"
+      + '<div class="row2">'+field("carry_through",'<select data-a="carry_through">'+selOpts(["true","false"],String(a.carry_through!==false))+"</select>")
+      + field("arrive_thread",'<select data-a="arrive_thread">'+selOpts(["true","false"],String(a.arrive_thread!==false))+"</select>")+"</div>"
+      + '<button class="mini" data-adel="1">✕ delete arc (removes its dots)</button>'
+      + "</div>";
+  }
+  h += '<button id="addArcBtn" class="primary">+ add arc</button>';
+  p.innerHTML = h;
+}
+function arcsApply(e){
+  if (e.target.id==="addArcBtn"){
+    ensureSplitsStubsJoinsArcs();
+    const aid = nextArcId();
+    const l0 = lanes()[0];
+    S.graph.arcs[aid] = {from_lane:l0, to_lane:l0, kind:"loop", label:"new trip", side:"right",
+                         carry_through:false, arrive_thread:false};
+    laneItems(l0).push({arc:aid});
+    laneItems(l0).push({mark:aid});
+    commit("add arc"); return;
+  }
+  const box = e.target.closest("[data-aid]"); if(!box) return;
+  const aid = box.dataset.aid; const a = S.graph.arcs[aid]; if(!a) return;
+  if (e.target.dataset.adel){
+    delete S.graph.arcs[aid];
+    for (const l of lanes()){
+      const items = laneItems(l);
+      for (let i=items.length-1;i>=0;i--){
+        const k=itemKind(items[i]);
+        if ((k==="arc"||k==="mark") && items[i][k]===aid) items.splice(i,1);
+      }
+    }
+    commit("delete arc"); return;
+  }
+  const key = e.target.dataset.a; if(!key) return;
+  const val = e.target.value;
+  if (key==="__id"){
+    const nid = val.trim(); if(!nid||nid===aid||S.graph.arcs[nid]) return;
+    S.graph.arcs[nid]=S.graph.arcs[aid]; delete S.graph.arcs[aid];
+    for (const l of lanes()) for (const x of laneItems(l)){
+      if (x.arc===aid) x.arc=nid; if (x.mark===aid) x.mark=nid;
+    }
+    commit("rename arc"); return;
+  }
+  if (key==="interval"){
+    const parts = val.split(/[,\s]+/).filter(Boolean).map(Number);
+    if (parts.length===2 && parts.every(Number.isFinite)) a.interval=parts; else delete a.interval;
+  } else if (key==="color"){
+    const c = val.split(/[,\s]+/).filter(Boolean).map(Number);
+    if (c.length===3 && c.every(Number.isFinite)) a.color=c; else delete a.color;
+  } else if (key==="carry_through"||key==="arrive_thread"){ a[key] = (val==="true"); }
+  else { a[key]=val; }
+  if ((key==="from_lane"||key==="to_lane")){
+    // keep the dots honest: move arc item to from_lane, mark item to to_lane
+    for (const l of lanes()){
+      let items = laneItems(l);
+      const ai = items.findIndex(x=>x.arc===aid);
+      if (ai>=0 && l!==a.from_lane){ const [m]=items.splice(ai,1); laneItems(a.from_lane).push(m); }
+      items = laneItems(l);
+      const mi = items.findIndex(x=>x.mark===aid);
+      if (mi>=0 && l!==a.to_lane){ const [m]=items.splice(mi,1); laneItems(a.to_lane).push(m); }
+    }
+  }
+  commit("edit arc");
+}
+
+/* ================= thread tab ================= */
+function renderThread(){
+  const p = $("pane-thread");
+  let h = "<h3>The thread — the film's path</h3>"
+    + '<div class="hint">Ordered route of node/join ids, ending with ENDING. Must resolve (engine validates). Reorder with ◄ ►.</div>';
+  const th = S.graph.thread||[];
+  const known = [];
+  for (const n0 of S.graph.nodes||[]) known.push(n0.id);
+  known.push(...Object.keys(S.graph.joins||{}));
+  h += (th.length? th : ["(empty)"]).map((t,i)=>
+    '<div class="thrrow"><span class="grip">'+(i+1)+'</span>'
+    + '<input type="text" value="'+esc(t)+'" data-thi="'+i+'" style="flex:1">'
+    + '<button class="mini" data-thact="left" data-i="'+i+'"'+(i===0?" disabled":"")+'>◄</button>'
+    + '<button class="mini" data-thact="right" data-i="'+i+'"'+(i===th.length-1?" disabled":"")+'>►</button>'
+    + '<button class="mini" data-thact="del" data-i="'+i+'">✕</button></div>').join("")
+    + '<div class="row2"><div class="field"><label>add element</label><select id="thAdd">'+selOpts(known.concat(["ENDING"]), "ENDING")+'</select></div>'
+    + '<div class="field"><label>&nbsp;</label><button id="thAddBtn">append</button></div></div>';
+  p.innerHTML = h;
+}
+function threadApply(e){
+  const th = S.graph.thread = S.graph.thread||[];
+  const b = e.target.closest("[data-thact]");
+  if (b){
+    const i = +b.dataset.i;
+    if (b.dataset.thact==="left" && i>0){ [th[i-1],th[i]]=[th[i],th[i-1]]; commit("reorder thread"); }
+    else if (b.dataset.thact==="right" && i<th.length-1){ [th[i+1],th[i]]=[th[i],th[i+1]]; commit("reorder thread"); }
+    else if (b.dataset.thact==="del"){ th.splice(i,1); commit("thread remove"); }
+    return;
+  }
+  if (e.target.id==="thAddBtn"){ const v=$("thAdd").value; if(v){ th.push(v); commit("thread add"); } return; }
+  const inp = e.target.closest("input[data-thi]");
+  if (inp && e.type==="change"){ th[+inp.dataset.thi] = inp.value.trim(); commit("thread edit"); }
+}
+
+/* ================= meta tab ================= */
+function renderMeta(){
+  const p = $("pane-meta");
+  const m = S.graph.meta||{};
+  const tr = m.travellers||{};
+  let h = "<h3>Meta</h3>";
+  h += field("title", '<input type="text" data-m="title" value="'+esc(m.title||"")+'">');
+  h += field("subtitle", '<input type="text" data-m="subtitle" value="'+esc(m.subtitle||"")+'">');
+  h += field("thread label", '<input type="text" data-m="thread_label" value="'+esc(m.thread_label||"")+'">');
+  h += field("footer", '<input type="text" data-m="footer" value="'+esc(m.footer||"")+'">');
+  h += '<div class="row2">'+field("canvas w",'<input type="number" data-m="__cw" value="'+((S.graph.meta.canvas||[2400,1600])[0])+'">')
+     + field("canvas h",'<input type="number" data-m="__ch" value="'+((S.graph.meta.canvas||[2400,1600])[1])+'">')+"</div>";
+  h += '<div class="row2">'+field("versioning",'<select data-m="versioning"><option value="">—</option>'+selOpts(["crossing-count"],m.versioning||"")+"</select>")
+     + field("timescale unit",'<input type="text" data-m="__tsu" placeholder="hour" value="'+esc((m.timescale||{}).unit||"")+'">')+"</div>";
+  h += "<h3>Travellers</h3>";
+  for (const name of Object.keys(tr)){
+    h += '<div class="trrow"><input type="text" value="'+esc(name)+'" data-trname="'+esc(name)+'" style="flex:1">'
+      + '<input type="text" value="'+esc(tr[name].join(", "))+'" data-trcol="'+esc(name)+'" placeholder="200,120,40" style="width:110px">'
+      + '<button class="mini" data-trdel="'+esc(name)+'">✕</button></div>';
+  }
+  h += '<button id="addTravBtn" class="mini">+ traveller</button>';
+  h += "<h3>Legend</h3>";
+  h += '<textarea rows="3" data-m="__legend">'+esc((S.graph.legend||[]).join("\n"))+"</textarea>";
+  h += '<div class="hint">The survivor census (if any) is appended by the engine at render time — don\'t type it here.</div>';
+  p.innerHTML = h;
+}
+function metaApply(e){
+  const m = S.graph.meta = S.graph.meta||{};
+  if (e.target.id==="addTravBtn"){
+    m.travellers = m.travellers||{};
+    let n="New"; let i=1; while(m.travellers[n]) n="New"+(++i);
+    m.travellers[n]=[180,140,60]; commit("add traveller"); return;
+  }
+  const del = e.target.closest("[data-trdel]");
+  if (del){ delete m.travellers[del.dataset.trdel]; commit("remove traveller"); return; }
+  const t = e.target.closest("[data-trname],[data-trcol]");
+  if (t && e.type==="change"){
+    const old = t.dataset.trname||t.dataset.trcol;
+    if (t.dataset.trname){
+      const nn = t.value.trim()||old;
+      if (nn!==old){ m.travellers[nn]=m.travellers[old]; delete m.travellers[old];
+        for (const l of lanes()) for (const x of laneItems(l)){
+          const k=itemKind(x);
+          if (typeof x[k]==="object" && x[k].traveller===old) x[k].traveller=nn;
+        }
+        for (const aid of Object.keys(S.graph.arcs||{})) if (S.graph.arcs[aid].traveller===old) S.graph.arcs[aid].traveller=nn;
+      }
+    } else {
+      const c = t.value.split(/[,\s]+/).filter(Boolean).map(Number);
+      if (c.length===3 && c.every(Number.isFinite)) m.travellers[old]=c;
+    }
+    commit("edit travellers"); return;
+  }
+  const el = e.target.closest("[data-m]"); if(!el) return;
+  const key = el.dataset.m;
+  if (key==="__cw"||key==="__ch"){
+    const c = S.graph.meta.canvas = S.graph.meta.canvas||[2400,1600];
+    c[key==="__cw"?0:1] = Math.max(800, +el.value||800);
+  } else if (key==="__tsu"){
+    if (el.value.trim()) m.timescale = {unit: el.value.trim(), start: (m.timescale||{}).start||0};
+    else delete m.timescale;
+  } else if (key==="__legend"){
+    S.graph.legend = el.value.split("\n").filter(x=>x.trim().length);
+    return; // legend edits commit without touching meta fields
+  } else if (key==="versioning"){ if(el.value) m.versioning=el.value; else delete m.versioning; }
+  else { m[key]=el.value; }
+  commit("edit meta");
+}
+
+/* ================= side panes dispatcher ================= */
+function renderSidePanes(){ renderJoins(); renderArcs(); renderThread(); renderMeta(); renderInspector(); }
+function switchTab(name){
+  S.tab=name;
+  document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on", b.dataset.tab===name));
+  document.querySelectorAll(".pane").forEach(p=>p.classList.remove("on"));
+  $("pane-"+name).classList.add("on");
+  if (name==="item") renderInspector();
+  if (name==="joins") renderJoins();
+  if (name==="arcs") renderArcs();
+  if (name==="thread") renderThread();
+  if (name==="meta") renderMeta();
+}
+
+/* ================= save / download ================= */
+function currentJSON(){ return JSON.stringify(S.graph, null, 2); }
+async function save(){
+  if (!S.graph) return;
+  const d = await api("/api/save", {name:S.name, graph:S.graph});
+  if (d.error){ $("errbox").style.display="block"; $("errbox").innerHTML=d.errors.map(e=>"<div>"+esc(e)+"</div>").join(""); status("save refused — invalid graph"); return; }
+  setDirty(false); status("saved → "+d.path);
+}
+function download(){
+  const blob = new Blob([currentJSON()], {type:"application/json"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = (S.name||"chart")+".universes.json";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+
+/* ================= zoom ================= */
+function applyZoom(){ $("stage").style.transform="scale("+S.zoom+")"; $("zoomLbl").textContent=Math.round(S.zoom*100)+"%"; }
+
+/* ================= status ================= */
+function status(msg){ $("status").textContent = msg; }
+
+/* ================= events (delegation only) ================= */
+$("lanes").addEventListener("click", e=>{
+  if (e.target.dataset.del){ const c=e.target.closest(".item"); delItem(c.dataset.lane, +c.dataset.idx); return; }
+  laneHeaderActions(e); laneRename(e); laneAdd(e);
+  const card = e.target.closest(".item[data-idx]");
+  if (card) selectLaneItem(card.dataset.lane, +card.dataset.idx);
+});
+$("lanes").addEventListener("input", laneAdd);
+$("lanes").addEventListener("dragstart", onDragStart);
+$("lanes").addEventListener("dragover", onDragOver);
+$("lanes").addEventListener("dragleave", clearDropMarks);
+$("lanes").addEventListener("drop", onDrop);
+$("hblayer").addEventListener("click", e=>{
+  const hb = e.target.closest(".hb"); if(!hb) return;
+  // map hitbox -> board card by kind/id
+  const k = hb.dataset.kind, id = hb.dataset.id;
+  for (const l of lanes()){
+    const items = laneItems(l);
+    for (let i=0;i<items.length;i++){
+      const it=items[i], ik=itemKind(it), v=it[ik];
+      if (k==="split" && ik==="split" && String(v)===id) return selectLaneItem(l,i);
+      if (k==="join" && ik==="join" && String(v)===id) return switchTab("joins");
+      if ((k==="arc"||k==="mark") && ik===k && String(v)===id.replace(/^(arc|mark):/,"")) return selectLaneItem(l,i);
+      if (k==="node" && ik==="node" && v===id) return selectLaneItem(l,i);
+      if (k==="stub" && ik==="stub" && ((typeof v==="object"&&v.__ref===id)||v===id)) return selectLaneItem(l,i);
+      if (k==="ending" && ik==="ending") return selectLaneItem(l,i);
+    }
+  }
+});
+$("pane-item").addEventListener("input", inspectorApply);
+$("pane-item").addEventListener("change", inspectorApply);
+$("pane-item").addEventListener("click", inspectorApply);
+$("pane-joins").addEventListener("input", joinsApply);
+$("pane-joins").addEventListener("change", joinsApply);
+$("pane-joins").addEventListener("click", joinsApply);
+$("pane-arcs").addEventListener("input", arcsApply);
+$("pane-arcs").addEventListener("change", arcsApply);
+$("pane-arcs").addEventListener("click", arcsApply);
+$("pane-thread").addEventListener("input", threadApply);
+$("pane-thread").addEventListener("change", threadApply);
+$("pane-thread").addEventListener("click", threadApply);
+$("pane-meta").addEventListener("input", metaApply);
+$("pane-meta").addEventListener("change", metaApply);
+$("pane-meta").addEventListener("click", metaApply);
+$("tabs").addEventListener("click", e=>{ const b=e.target.closest("button[data-tab]"); if(b) switchTab(b.dataset.tab); });
+$("undoBtn").addEventListener("click", undo);
+$("redoBtn").addEventListener("click", redo);
+$("saveBtn").addEventListener("click", ()=>{
+  if (!S.name){ $("saveas").style.display="flex"; $("saveasName").focus(); return; }
+  save();
+});
+$("downloadBtn").addEventListener("click", download);
+$("saveasCancel").addEventListener("click", ()=>{ $("saveas").style.display="none"; });
+$("saveasGo").addEventListener("click", async ()=>{
+  const name = $("saveasName").value.trim().toLowerCase().replace(/[^a-z0-9-]/g,"-");
+  if (!name) return;
+  const d = await api("/api/save", {name, graph:S.graph});
+  if (d.error){ status("save refused — invalid graph"); return; }
+  S.name=name; setDirty(false); $("saveas").style.display="none";
+  refreshExamples(); status("saved copy → "+d.path);
+});
+$("styleSel").addEventListener("change", e=>{ S.style=e.target.value; doRender(); });
+$("orientSel").addEventListener("change", e=>{ S.orient=e.target.value; doRender(); });
+$("zoomIn").addEventListener("click", ()=>{ S.zoom=Math.min(2,S.zoom*1.25); applyZoom(); });
+$("zoomOut").addEventListener("click", ()=>{ S.zoom=Math.max(.25,S.zoom/1.25); applyZoom(); });
+$("zoomFit").addEventListener("click", ()=>{
+  const w = $("imgwrap").clientWidth / ($("chart").naturalWidth||1);
+  S.zoom = Math.max(.1, Math.min(2, w)); applyZoom();
+});
+document.addEventListener("keydown", e=>{
+  if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="z"){ e.preventDefault(); e.shiftKey? redo():undo(); return; }
+  if ((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==="s"){ e.preventDefault(); save(); return; }
+  if (e.key==="Delete" && S.sel && S.sel.type==="lane-item" && document.activeElement.tagName!=="INPUT" && document.activeElement.tagName!=="TEXTAREA"){
+    delItem(S.sel.lane, S.sel.idx);
+  }
+});
+$("addLaneBtn").addEventListener("click", ()=>{
+  let n=1; const have=new Set(lanes()); while(have.has("L"+n)) n++;
+  S.graph.lanes.push({id:"L"+n, label:"LANE "+n});
+  S.graph.lanes_content["L"+n]=[];
+  commit("add lane");
+});
+async function refreshExamples(){
+  const d = await api("/api/examples");
+  $("exampleSel").innerHTML = (d.examples||[]).map(n=>'<option value="'+esc(n)+'">'+esc(n)+"</option>").join("");
+}
+$("exampleSel").addEventListener("change", e=>{ if(e.target.value) loadExample(e.target.value); });
+
+/* ================= boot ================= */
+(async function(){
+  await refreshExamples();
+  const first = $("exampleSel").value || "demo-film";
+  await loadExample(first);
+  applyZoom();
+  status("ready — every preview is the real engine's output");
+})();
+</script>
+</body>
+</html>

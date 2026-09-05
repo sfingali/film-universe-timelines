@@ -120,6 +120,9 @@ def validate(g):
                         errs.append(f"{lid}: join '{jid}' listed in multiple lanes "
                                     f"('{prev}' and '{lid}') — place it only in to_lane")
     for jid, j in joins.items():
+        if not isinstance(j, dict) or "to_lane" not in j or "from_split" not in j:
+            errs.append(f"joins.{jid}: needs from_split and to_lane")
+            continue
         if j["to_lane"] not in lane_ids:
             errs.append(f"joins.{jid}: unknown to_lane '{j['to_lane']}'")
         elif join_lanes.get(jid) not in (None, j["to_lane"]):
@@ -207,7 +210,7 @@ def validate(g):
     return errs
 
 # ---------------- layout + draw ----------------
-def build(g, style="classic", density="normal", orientation="vertical"):
+def build(g, style="classic", density="normal", orientation="vertical", hitboxes=None):
     global _PROTECT
     _PROTECT = set()
     compact = density == "compact"
@@ -983,6 +986,26 @@ def build(g, style="classic", density="normal", orientation="vertical"):
         d.text((60,yy), tc(l), font=f_note, fill=INK); yy+=28
     d.text((40, ry+28*len(legend_lines)+82), tc(m["footer"]), font=f_foot, fill=GREY)
 
+    # optional hitboxes (GUI mode): screen-space rects of the placed story items
+    if hitboxes is not None:
+        for p in P:
+            k, cx, y = p["kind"], p["cx"], p["y"]
+            w, h = p.get("w") or 0, p.get("h") or 0
+            ref = p.get("v")
+            if k == "node":      box, rid, rlabel = (cx, y, cx+w, y+h), ref.get("id",""), ref.get("title","")
+            elif k == "stub":    box, rid, rlabel = (cx, y, cx+w, y+h), p.get("ref",""), (ref or {}).get("title","")
+            elif k == "ending":  box, rid, rlabel = (cx, y, cx+w, y+h), "ENDING", (ref or {}).get("title","")
+            elif k == "split":   r = 30; box, rid, rlabel = (cx-r, y-r, cx+r, y+r), str(ref), (g["splits"][ref]["caption"].split("\n")[0])
+            elif k == "join":    box, rid, rlabel = (cx-16, y-16, cx+16, y+16), str(ref), (g["joins"][ref].get("label") or ref)
+            elif k == "arc":     box, rid, rlabel = (cx-12, y-12, cx+12, y+12), "arc:"+str(ref), g["arcs"][ref].get("label") or ref
+            elif k == "mark":    box, rid, rlabel = (cx-10, y-10, cx+10, y+10), "mark:"+str(ref), g["arcs"][ref].get("label") or ref
+            else: continue
+            x0b, y0b, x1b, y1b = box
+            sx0, sy0 = (x0b, y0b) if horiz else (y0b, x0b)
+            sx1, sy1 = (x1b, y1b) if horiz else (y1b, x1b)
+            hitboxes.append({"kind": k, "id": rid, "label": rlabel,
+                             "lane": p.get("lane"), "rect": [sx0, sy0, sx1, sy1]})
+
     return img
 
 if __name__ == "__main__":
@@ -990,6 +1013,7 @@ if __name__ == "__main__":
     ap.add_argument("graph"); ap.add_argument("-o","--out",default=None)
     ap.add_argument("--style", default="classic", choices=["classic","weight","dash","tape"])
     ap.add_argument("--density", default="normal", choices=["compact","normal"])
+    ap.add_argument("--print-hitboxes", action="store_true")
     ap.add_argument("--orientation", default="vertical", choices=["vertical","horizontal"])
     a = ap.parse_args()
     g = json.load(open(a.graph))
@@ -999,6 +1023,9 @@ if __name__ == "__main__":
         for e in errs: print("  -", e)
         sys.exit(2)
     out = a.out or a.graph.replace(".json", f"-{a.style}.png")
-    img = build(g, a.style, density=a.density, orientation=a.orientation)
+    hit = [] if a.print_hitboxes else None
+    img = build(g, a.style, density=a.density, orientation=a.orientation, hitboxes=hit)
+    if hit is not None:
+        print(json.dumps(hit, indent=1))
     img.save(out, "PNG")
     print("saved", out, img.size)
