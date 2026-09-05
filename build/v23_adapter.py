@@ -51,6 +51,7 @@ def adapt_p1(g23, graph):
             continue
         lane = ev["universe"]
         letter = s["event"][2:] if s["event"].startswith("e-") else s["event"]
+        letter = letter[:2].upper() if len(letter) > 2 else letter
         cite_l = (ev.get("cite") or {}).get("locator", "")
         cap = letter + " - " + ev["label"]
         if cite_l:
