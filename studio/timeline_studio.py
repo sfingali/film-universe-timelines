@@ -26,16 +26,24 @@ EXAMPLES_DIR = os.path.join(ROOT, "examples")
 
 
 def graph_path(name):
-    name = os.path.basename(name)          # no traversal
-    return os.path.join(EXAMPLES_DIR, name, f"{name}.universes.json")
+    name = os.path.basename(name)          # strip any path components
+    if name in ("", ".", ".."):
+        return None
+    p = os.path.realpath(os.path.join(EXAMPLES_DIR, name, f"{name}.universes.json"))
+    if os.path.commonpath([p, os.path.realpath(EXAMPLES_DIR)]) != os.path.realpath(EXAMPLES_DIR):
+        return None                        # M8: resolve + prefix check (basename alone misses '..')
+    return p
 
 
 def load_graph(name):
     p = graph_path(name)
-    if not os.path.exists(p):
+    if not p or not os.path.exists(p):
         return None, [f"unknown example: {name}"]
-    with open(p) as f:
-        return json.load(f), []
+    try:
+        with open(p) as f:
+            return json.load(f), []
+    except Exception as e:
+        return None, [f"cannot read {name}: {e}"]
 
 
 def validate_graph(g):
@@ -68,9 +76,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    MAX_BODY = 8 * 1024 * 1024   # graphs are small; 8 MiB is generous
+
     def _body(self):
-        n = int(self.headers.get("Content-Length") or 0)
-        raw = self.rfile.read(n) if n else b"{}"
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            return None
+        if n <= 0:
+            return {}
+        if n > self.MAX_BODY:            # M6 (dsh): unbounded read / JSON bomb
+            return None
+        raw = self.rfile.read(n)
         try:
             return json.loads(raw or b"{}")
         except Exception:
@@ -78,6 +95,17 @@ class Handler(BaseHTTPRequestHandler):
 
     # ---------------- GET ----------------
     def do_GET(self):
+        try:
+            self._do_GET()
+        except BrokenPipeError:
+            pass
+        except Exception as e:                 # M8: handler threads must not die silently
+            try:
+                self._json({"error": f"server error: {e}"}, 500)
+            except Exception:
+                pass
+
+    def _do_GET(self):
         u = urllib.parse.urlparse(self.path)
         if u.path in ("/", "/index.html"):
             with open(os.path.join(HERE, "index.html"), "rb") as f:
@@ -95,7 +123,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"examples": names})
         elif u.path == "/api/graph":
             q = urllib.parse.parse_qs(u.query)
-            g, errs = load_graph((q.get("name") or ["demo-film"])[0])
+            nm = (q.get("name") or ["demo-film"])[0]
+            if graph_path(nm) is None:
+                return self._json({"graph": None, "errors": [f"bad name: {nm}"]}, 400)
+            g, errs = load_graph(nm)
             if g is None:
                 self._json({"graph": None, "errors": errs}, 404)
             else:
@@ -131,15 +162,18 @@ class Handler(BaseHTTPRequestHandler):
             if not isinstance(b, dict) or "name" not in b or "graph" not in b:
                 return self._json({"error": "need {name, graph}"}, 400)
             name = re.sub(r"[^a-z0-9-]", "", str(b["name"]).lower()) or "untitled"
+            errs = validate_graph(b["graph"])
+            if errs:                          # M9: validate first — no dir side effects on refusal
+                return self._json({"error": "refusing to save an invalid graph", "errors": errs}, 400)
             d = os.path.join(EXAMPLES_DIR, name)
             os.makedirs(d, exist_ok=True)
             p = os.path.join(d, f"{name}.universes.json")
-            errs = validate_graph(b["graph"])
-            if errs:
-                return self._json({"error": "refusing to save an invalid graph", "errors": errs}, 400)
-            with open(p, "w") as f:
-                json.dump(b["graph"], f, indent=2)
-                f.write("\n")
+            try:
+                with open(p, "w") as f:
+                    json.dump(b["graph"], f, indent=2)
+                    f.write("\n")
+            except OSError as e:
+                return self._json({"error": f"write failed: {e}"}, 500)
             return self._json({"ok": True, "path": os.path.relpath(p, ROOT)})
         self._json({"error": "not found"}, 404)
 

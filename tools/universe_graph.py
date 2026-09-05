@@ -224,6 +224,7 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
         need to know which orientation is active."""
         return (t, n) if horiz else (n, t)
 
+    _PROTECT_ORIG = set(_PROTECT)   # M11: snapshot so concurrent builds can't cross-contaminate the global
     for l in g.get("lanes", []):
         _PROTECT.add(str(l.get("id", "")).upper())
         lab = str(l.get("label", "")).strip()
@@ -1000,12 +1001,15 @@ def build(g, style="classic", density="normal", orientation="vertical", hitboxes
             elif k == "arc":     box, rid, rlabel = (cx-12, y-12, cx+12, y+12), "arc:"+str(ref), g["arcs"][ref].get("label") or ref
             elif k == "mark":    box, rid, rlabel = (cx-10, y-10, cx+10, y+10), "mark:"+str(ref), g["arcs"][ref].get("label") or ref
             else: continue
+            # box is in (t,n) logical space: (x0b..)=along-lane extent, (y0b..)=across-lane.
+            # Screen transform matches XY(): vertical (x,y)=(n,t) -> swap; horizontal (x,y)=(t,n) -> identity.
             x0b, y0b, x1b, y1b = box
-            sx0, sy0 = (x0b, y0b) if horiz else (y0b, x0b)
-            sx1, sy1 = (x1b, y1b) if horiz else (y1b, x1b)
+            sx0, sy0 = (y0b, x0b) if horiz is False else (x0b, y0b)
+            sx1, sy1 = (y1b, x1b) if horiz is False else (x1b, y1b)
             hitboxes.append({"kind": k, "id": rid, "label": rlabel,
                              "lane": p.get("lane"), "rect": [sx0, sy0, sx1, sy1]})
 
+    _PROTECT.clear(); _PROTECT.update(_PROTECT_ORIG)   # M11: leave the global as we found it
     return img
 
 if __name__ == "__main__":

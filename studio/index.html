@@ -179,14 +179,20 @@ function ensureMeta(){
 }
 
 /* ================= undo ================= */
-function commit(label){
+function commit(label, opts){
+  opts = opts || {};
   const snap = JSON.stringify(S.graph);
   if (S.history.length===0 || S.history[S.history.length-1].snap!==snap){
     S.history.push({snap, label:label||"edit"});
     if (S.history.length>120) S.history.shift();
     S.future.length=0;
   }
-  scheduleRender(); renderBoard(); renderSidePanes(); setDirty(true);
+  // B1 (dsh BLOCKER): never rebuild the pane the user is typing in — that
+  // detached the focused element after the first keystroke. Keep focus by
+  // only re-rendering the board + chart; panes re-render on tab switch or
+  // selection change, not mid-edit.
+  scheduleRender(); renderBoard(); setDirty(true);
+  if (!opts.keepPanes) renderSidePanes(S.tab);
 }
 function undo(){
   if (S.history.length<2) return;
@@ -214,15 +220,23 @@ async function api(path, body, method){
   const opt = (method || body !== undefined)
     ? {method: method || "POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body||{})}
     : {};
-  const r = await fetch(path, opt);
+  let r;
+  try { r = await fetch(path, opt); }
+  catch(err){ status("network error: "+err.message); throw err; }
+  if (!r.ok){
+    let msg = "HTTP "+r.status;
+    try { const j = await r.json(); if (j && j.error) msg += ": "+j.error; } catch(_){}
+    status(msg);
+  }
   return r.json();
 }
 async function loadExample(name){
   const d = await api("/api/graph?name="+encodeURIComponent(name));
   if (!d.graph){ status("load failed: "+(d.errors||[]).join("; ")); return; }
-  S.graph = d.graph; S.name = name; S.history=[{snap:JSON.stringify(S.graph),label:"load"}];
+  S.graph = d.graph; S.name = name;
+  ensureSplitsStubsJoinsArcs(); ensureMeta();   // M12: normalize BEFORE snapshotting, so undo-to-load can't leave meta undefined
+  S.history=[{snap:JSON.stringify(S.graph),label:"load"}];
   S.future=[]; S.sel=null; setDirty(false);
-  ensureSplitsStubsJoinsArcs(); ensureMeta();
   renderBoard(); renderSidePanes(); scheduleRender();
   status("loaded "+name+(d.errors.length? " — "+d.errors.length+" validation errors":""));
 }
@@ -232,6 +246,7 @@ let renderTimer=null, renderSeq=0;
 function scheduleRender(){ clearTimeout(renderTimer); renderTimer=setTimeout(doRender, 350); }
 async function doRender(){
   if (!S.graph) return;
+  clearTimeout(renderTimer);    // M17: a direct render pre-empts any queued debounce
   const seq = ++renderSeq;
   $("renderState").textContent = "rendering…";
   const d = await api("/api/render", {graph:S.graph, style:S.style, orientation:S.orient});
@@ -273,7 +288,7 @@ function selMatches(hb){
     if ((hb.kind==="arc"||hb.kind==="mark") && k===hb.kind) return String(v).replace(/^(arc|mark):/,"")===hb.id.replace(/^(arc|mark):/,"");
     if (hb.kind==="node" && k==="node") return vid===hb.id;
     if (hb.kind==="stub" && k==="stub") return (typeof v==="object" && v.__ref===hb.id) || v===hb.id;
-    if (hb.kind==="ending" && k==="ending") return true;
+    if (hb.kind==="ending" && k==="ending") return hb.lane===S.sel.lane;
   }
   return false;
 }
@@ -284,7 +299,7 @@ function itemCard(it, lane, idx){
   if (k==="beat" && typeof v==="object"){ title=v.beat||""; sub=[v.cite, v.certainty, v.screen].filter(Boolean).join(" · "); }
   else if (k==="beat"){ title=String(v); }
   else if (k==="split"){ const s=S.graph.splits[v]; title="#"+v; sub=s? s.caption.split("\n")[0]:"(missing split def)"; }
-  else if (k==="stub"){ const s=(typeof v==="object")? v : S.graph.stubs[v]; title=s? s.title:"(stub)"; sub=s? s.sub:""; if(typeof v==="object") title+=" *"; }
+  else if (k==="stub"){ const ref=(typeof v==="object")? v.__ref : v; const s=S.graph.stubs[ref]; title=s? s.title:("(stub "+ref+")"); sub=s? s.sub:""; }
   else if (k==="join"){ const j=S.graph.joins[v]; title="→ "+(j? j.to_lane:"?"); sub=j? j.label:""; }
   else if (k==="node"){ const n0=S.graph.nodes.find(n0=>n0.id===v); title=n0? n0.title:"(node)"; }
   else if (k==="ending"){ title=v.title||"ENDING"; sub=v.uncertain? "? uncertain":""; }
@@ -374,9 +389,42 @@ function laneAdd(e){
 }
 function delItem(lane, idx){
   const items = laneItems(lane); const it = items[idx]; if(!it) return;
-  if (itemKind(it)==="join"){ status("join items are removed in the Joins tab"); return; }
+  const k = itemKind(it);
+  if (k==="join"){ status("join items are removed in the Joins tab"); return; }
+  if (k==="split"){
+    // M5 (dsh): removing the placed split card while a join still references
+    // the split id passes validate() but crashes build(). Cascade first.
+    const sid = String(it.split);
+    const jids = Object.keys(S.graph.joins).filter(j => String(S.graph.joins[j].from_split)===sid);
+    for (const jid of jids){
+      delete S.graph.joins[jid];
+      for (const l of lanes()){
+        const arr = laneItems(l);
+        for (let i=arr.length-1;i>=0;i--) if (arr[i].join===jid) arr.splice(i,1);
+      }
+    }
+  }
+  if (k==="arc"||k==="mark"){
+    // M7: deleting a trip dot leaves the arc without its departure/arrival —
+    // validator rejects. Remove the whole arc (definition + both dots).
+    const aid = String(it[k]);
+    delete S.graph.arcs[aid];
+    for (const l of lanes()){
+      const arr = laneItems(l);
+      for (let i=arr.length-1;i>=0;i--){
+        const kk=itemKind(arr[i]);
+        if ((kk==="arc"||kk==="mark") && String(arr[i][kk])===aid) arr.splice(i,1);
+      }
+    }
+    if (S.sel && S.sel.type==="lane-item") S.sel=null;
+    commit("delete trip"); return;
+  }
   items.splice(idx,1);
-  if (S.sel && S.sel.type==="lane-item" && S.sel.lane===lane && S.sel.idx===idx) S.sel=null;
+  // M14: fix selection index for items after the deleted one
+  if (S.sel && S.sel.type==="lane-item" && S.sel.lane===lane){
+    if (S.sel.idx===idx) S.sel=null;
+    else if (S.sel.idx>idx) S.sel.idx--;
+  }
   commit("delete item");
 }
 /* ---- selection ---- */
@@ -425,6 +473,10 @@ function onDrop(e){
   clearDropMarks();
   const t = dropTargetInfo(e); if(!t) return;
   const {lane:from, idx:fi} = S.drag;
+  const dragged = laneItems(from)[fi];
+  const dk = itemKind(dragged);
+  if (dk==="arc" && t.lane!==from){ S.graph.arcs[String(dragged.arc)].from_lane = t.lane; }
+  if (dk==="mark" && t.lane!==from){ S.graph.arcs[String(dragged.mark)].to_lane = t.lane; }
   let ti = t.idx;
   const items = laneItems(from);
   const [moved] = items.splice(fi,1);
@@ -465,7 +517,7 @@ function renderInspector(){
     h += field("caption", '<textarea rows="2" data-bind="caption">'+esc(s.caption)+"</textarea>");
   } else if (k==="stub"){
     const ref = (typeof v==="object")? v.__ref : v;
-    const s = (typeof v==="object")? v : (S.graph.stubs[v]||{});
+    const s = S.graph.stubs[ref]||{};
     h += field("stub def", '<select data-bind="__stubref">'+selOpts(Object.keys(S.graph.stubs),ref)+"</select>");
     h += field("title", '<input type="text" data-bind="title" value="'+esc(s.title||"")+'">');
     h += field("sub", '<textarea rows="2" data-bind="sub">'+esc(s.sub||"")+"</textarea>");
@@ -510,12 +562,16 @@ function inspectorApply(e){
   if (el.dataset.act==="movelane"){
     const to = el.value; if (to===S.sel.lane) return;
     if (k==="join"){ status("joins move via the Joins tab"); renderInspector(); return; }
+    if (k==="arc"){ S.graph.arcs[String(it.arc)].from_lane = to; }
+    if (k==="mark"){ S.graph.arcs[String(it.mark)].to_lane = to; }
     laneItems(S.sel.lane).splice(S.sel.idx,1);
     laneItems(to).push(it);
     S.sel.lane=to; S.sel.idx=items_len(to)-1;
     commit("move item"); return;
   }
   if (el.dataset.act==="dup"){
+    const kk = itemKind(it);
+    if (kk==="arc"||kk==="mark"||kk==="join"){ status("trip/join dots are unique — duplicate them via the Arcs/Joins tab"); return; }
     const copy = clone(it);
     laneItems(S.sel.lane).splice(S.sel.idx+1,0,copy);
     commit("duplicate"); return;
@@ -544,9 +600,12 @@ function inspectorApply(e){
     it.beat = o; // keep flat
   } else if (k==="split"){ S.graph.splits[String(v)][b] = val; }
   else if (k==="stub"){
-    const ref = (typeof it.stub==="object")? it.stub.__ref : it.stub;
-    const def = (typeof it.stub==="object")? it.stub : (it.stub = clone(S.graph.stubs[ref]||{}));
-    def[b] = val; S.graph.stubs[ref] = def;
+    // M3 (dsh): the item must stay {stub:"ref"} — the engine rejects object-form
+    // stub items. Edits go to the stubs dict under the ref.
+    const ref = (typeof it.stub==="object")? (it.stub.__ref || Object.keys(S.graph.stubs)[0]) : it.stub;
+    it.stub = ref;                       // normalize any legacy object form back to ref
+    if (!S.graph.stubs[ref]) S.graph.stubs[ref] = {title: ref, sub: ""};
+    S.graph.stubs[ref][b] = val;
   }
   else if (k==="ending"){ v[b] = (b==="uncertain")? (val==="true") : val; }
   else if (k==="laneborn"){ v[b] = (b==="from_split")? (val||null) : val; }
@@ -590,7 +649,12 @@ function joinsApply(e){
     if (!splits.length){ status("create a split first (board: add… → split)"); return; }
     const jid = nextJoinId();
     const from = splits[splits.length-1];
-    const to = lanes().find(l => l!==S.graph.splits[from].__lane) || lanes()[0];
+    // M13: find the lane that actually holds the split card (the source of the join run)
+    let srcLane = lanes()[0];
+    for (const l of lanes()){
+      if (laneItems(l).some(x => itemKind(x)==="split" && String(x.split)===from)){ srcLane=l; break; }
+    }
+    const to = lanes().find(l => l!==srcLane) || srcLane;
     S.graph.joins[jid] = {from_split:from, to_lane:to, side:"left", label:"enters "+to};
     laneItems(to).push({join:jid});
     S.sel=null; commit("add join"); return;
@@ -803,14 +867,28 @@ function metaApply(e){
     else delete m.timescale;
   } else if (key==="__legend"){
     S.graph.legend = el.value.split("\n").filter(x=>x.trim().length);
-    return; // legend edits commit without touching meta fields
+    commit("edit legend"); return;   // M4 (dsh): was a bare return — no history, no render, no dirty flag
   } else if (key==="versioning"){ if(el.value) m.versioning=el.value; else delete m.versioning; }
   else { m[key]=el.value; }
   commit("edit meta");
 }
 
 /* ================= side panes dispatcher ================= */
-function renderSidePanes(){ renderJoins(); renderArcs(); renderThread(); renderMeta(); renderInspector(); }
+function renderSidePanes(activeTab){
+  // skip re-rendering the pane that currently has focus (it would kill the
+  // caret mid-keystroke); the other panes stay in sync.
+  const ae = document.activeElement;
+  const focusPane = ae ? ae.closest(".pane") : null;
+  const skip = (paneId, fn) => {
+    if (focusPane && focusPane.id === paneId) return;
+    fn();
+  };
+  skip("pane-item", renderInspector);
+  skip("pane-joins", renderJoins);
+  skip("pane-arcs", renderArcs);
+  skip("pane-thread", renderThread);
+  skip("pane-meta", renderMeta);
+}
 function switchTab(name){
   S.tab=name;
   document.querySelectorAll("#tabs button").forEach(b=>b.classList.toggle("on", b.dataset.tab===name));
@@ -870,7 +948,7 @@ $("hblayer").addEventListener("click", e=>{
       if ((k==="arc"||k==="mark") && ik===k && String(v)===id.replace(/^(arc|mark):/,"")) return selectLaneItem(l,i);
       if (k==="node" && ik==="node" && v===id) return selectLaneItem(l,i);
       if (k==="stub" && ik==="stub" && ((typeof v==="object"&&v.__ref===id)||v===id)) return selectLaneItem(l,i);
-      if (k==="ending" && ik==="ending") return selectLaneItem(l,i);
+      if (k==="ending" && ik==="ending" && hb.dataset.lane===l) return selectLaneItem(l,i);
     }
   }
 });
