@@ -66,9 +66,25 @@ done
 - **grey "ALREADY RUNNING" chip** at a lane's top = that world predates the traveller
 - **blue "RUNS ON" chip + faded tail** = the abandoned branch keeps existing
 - the **green thread** is the film's path — one continuous line, start to ending
+- **time-travel arcs** (elbow curves) = a trip within or into worlds *without a
+  new universe*: `travel` (thread colour), `return` (grey), `loop` (lane colour,
+  e.g. Groundhog Day's day-reset). Another character's trip (old Biff) draws in
+  its own colour with `carry_through: false` — the film's thread ignores it.
 
 Per-film colours: set `meta.node_types` (e.g. `{"death": {"color": [40,40,160]}}`)
 and every derived shade (fill, text) follows.
+
+## The four grammars (test films)
+
+| film | grammar | what the chart proves |
+|------|---------|----------------------|
+| THE WAIF (private) | split/join | every pull splits; joined worlds pre-exist |
+| Back to the Future Part II | overwrite + one true branch | revisions in place on ONE lane; alt-1985 alone is a new world |
+| Groundhog Day | the real reset | one lane, zero branches — the honest anti-universe chart |
+| The Butterfly Effect | chain | each dive rewrites a life: new lane, abandoned lives run on |
+| Primer | channel | the box rides inside one world-line: out late, in earlier |
+
+All four example JSONs ship in `examples/` — read them as cookbooks.
 
 ## Design principles
 

@@ -1,0 +1,125 @@
+{
+  "_doc": "PRIMER — simplified honest board. The box's inner-time and the audience-never-confirms-which-copies problem are stated, not drawn. U-1/Aaron & Abe's exit arc is the film's premise, drawn once.",
+  "meta": {
+    "title": "Primer — The Box Travellers",
+    "subtitle": "The boxes are CHANNELS: enter late, leave early, on the same world · the film never confirms which copies walk out",
+    "thread_label": "THE THREAD: THE GARAGE → THE FAIL-SAFE EXIT",
+    "footer": "Test film 4 of 4 — channel grammar + honest simplification. Second-order copies/counterparts left to the viewer.",
+    "canvas": [
+      2800,
+      3200
+    ],
+    "node_types": {
+      "thread": {
+        "color": [
+          63,
+          81,
+          140
+        ]
+      },
+      "ending": {
+        "color": [
+          63,
+          81,
+          140
+        ]
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "WORLD",
+      "label": "THE WORLD (one line)"
+    }
+  ],
+  "lanes_content": {
+    "WORLD": [
+      {
+        "node": "U1"
+      },
+      {
+        "segment": "The first runs (watch, protein, the finger — 6-hour loops inside the box)"
+      },
+      {
+        "arc": "run1"
+      },
+      {
+        "mark": "run1"
+      },
+      {
+        "segment": "Aaron & Abe start using the box on themselves"
+      },
+      {
+        "beat": "They watch themselves in the world they left — the doubles live the day they no longer inhabit",
+        "cite": "act 2"
+      },
+      {
+        "arc": "run2"
+      },
+      {
+        "mark": "run2"
+      },
+      {
+        "beat": "Abe's fail-safe box: built earlier, switched off, waiting — the exit that predates the mess",
+        "cite": "act 3"
+      },
+      {
+        "arc": "run3"
+      },
+      {
+        "mark": "run3"
+      },
+      {
+        "ending": {
+          "title": "The Exit",
+          "body": "The fail-safe takes them out days before the garage work began — 'we could be the ones who are not'. Aaron's final call is from a world we cannot date.",
+          "cite": "act 3"
+        }
+      },
+      {
+        "abandon": 120
+      }
+    ]
+  },
+  "arcs": {
+    "run1": {
+      "from_lane": "WORLD",
+      "to_lane": "WORLD",
+      "kind": "travel",
+      "label": "6-hour box run — leave 15:00, arrive 09:00",
+      "side": "left"
+    },
+    "run2": {
+      "from_lane": "WORLD",
+      "to_lane": "WORLD",
+      "kind": "travel",
+      "label": "the full-day doubles — leave ~noon, wake earlier",
+      "side": "left"
+    },
+    "run3": {
+      "from_lane": "WORLD",
+      "to_lane": "WORLD",
+      "kind": "travel",
+      "label": "the fail-safe exit — out days earlier",
+      "side": "left"
+    }
+  },
+  "thread": [
+    "U1",
+    "ENDING"
+  ],
+  "legend": [
+    "Channel grammar: one world-line, the box rides INSIDE it — out late, in earlier. No lanes are added by a box run.",
+    "Drawn once, honestly simplified: the film's copies-on-copies (Granger, the phone call, which Aaron narrates) are never resolvable on any chart.",
+    "The fail-safe exit arc is the film's ending: two men walk out of their own history."
+  ],
+  "nodes": [
+    {
+      "id": "U1",
+      "lane": "WORLD",
+      "title": "The World — One Line",
+      "body": "The garage: four engineers build weevil traps, then the box — the object that loops its inside.",
+      "cite": "act 1"
+    }
+  ]
+}

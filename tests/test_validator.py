@@ -42,6 +42,25 @@ LIES = {
                                              for it in c for k in it]),
 }
 
+ARCS = {
+    "a1": {"from_lane": "A", "to_lane": "A", "kind": "loop", "label": "again"},
+}
+ARC_LIES = {
+    "arc_never_departs":  ("no_arc_item", "a1"),
+    "arc_never_arrives":  ("no_mark_item", "a1"),
+    "arc_from_ghost_lane":("arcs_from_lane", "a1"),
+    "arc_bad_kind":       ("arcs_kind", "a1"),
+    "arc_bad_color":      ("arcs_color", "a1"),
+}
+
+def with_arc(base, arcs=ARCS, arc_items=True, mark_items=True):
+    g = deep_copy(base)
+    g["arcs"] = deep_copy(arcs)
+    if arc_items: g["lanes_content"]["A"].insert(1, {"arc": "a1"})
+    if mark_items: g["lanes_content"]["A"].insert(2, {"mark": "a1"})
+    return g
+
+
 
 def run_engine(graph, out):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
@@ -92,6 +111,39 @@ def main():
             failures += 1
         else:
             print(f"ok  {name}: refused (exit {rc})")
+
+    # arc lies: each must exit 2
+    for name, (how, aid) in ARC_LIES.items():
+        if how == "no_arc_item":
+            g = with_arc(GOOD, arc_items=False)
+        elif how == "no_mark_item":
+            g = with_arc(GOOD, mark_items=False)
+        elif how == "arcs_from_lane":
+            g = with_arc(GOOD); g["arcs"][aid]["from_lane"] = "GHOST"
+        elif how == "arcs_kind":
+            g = with_arc(GOOD); g["arcs"][aid]["kind"] = "teleport"
+        elif how == "arcs_color":
+            g = with_arc(GOOD); g["arcs"][aid]["color"] = "red"
+        rc, msg = run_engine(g, out)
+        if rc == 0:
+            print(f"FAIL  {name}: lie rendered (exit 0)")
+            failures += 1
+        elif os.path.exists(out):
+            print(f"FAIL  {name}: exit {rc} but PNG exists")
+            os.unlink(out)
+            failures += 1
+        else:
+            print(f"ok  {name}: refused (exit {rc})")
+
+    # sanity: a well-formed arc chart must render
+    rc, msg = run_engine(with_arc(GOOD), out)
+    if rc != 0:
+        print("FAIL  well-formed arc chart refused:")
+        print(msg)
+        failures += 1
+    else:
+        os.unlink(out)
+        print("ok  well-formed arc chart renders")
 
     print("ALL PASS" if failures == 0 else f"{failures} FAILURES")
     sys.exit(1 if failures else 0)

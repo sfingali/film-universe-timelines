@@ -23,6 +23,11 @@ Nothing is ever drawn by hand; the chart is a build artifact.
   "already running" chip; the thread enters them at a join dot part-way down.
 - A joined lane shows only the time the protagonist occupies it. The world's
   own off-screen life is one grey "elsewhen" tail, not a full biography.
+- Time-travel that does NOT fork a world (overwrites, loops, box channels) is
+  drawn as ARCS, never lanes: `travel`/`return`/`loop` kinds; another
+  character's trip gets its own colour + `carry_through:false` so the film's
+  thread ignores it. A genuinely real reset (Groundhog Day) = one lane, loop
+  arcs, zero branches — do not fake universes into a reset film.
 - Threads split into separate graphs (e.g. another character's jumps, or
   before-lives): separate chart, never mixed into the protagonist's lanes.
 - Decide deliberately where the chart ENDS. Ending on the final split keeps a

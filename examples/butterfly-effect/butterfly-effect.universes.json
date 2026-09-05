@@ -1,0 +1,232 @@
+{
+  "_doc": "THE BUTTERFLY EFFECT — chain grammar. Each journal dive rewrites one life: a new lane per rewritten present. The film presents overwrites; the chart keeps every world it abandoned (a rewrite that erased a lane would be lying about what the chart can show).",
+  "meta": {
+    "title": "The Butterfly Effect — The Rewritten Lives",
+    "subtitle": "Every journal dive rewrites the world · the abandoned life runs on (grey) · the horror compounds",
+    "thread_label": "THE THREAD: CHILDHOOD → THE CAMPUS LIFE → THE PRISON LIFE → THE AMPUTEE LIFE → THE ENDING",
+    "footer": "Test film 3 of 4 — chain grammar: arcs back, lanes sideways. Cites = act markers, not scene numbers.",
+    "canvas": [
+      2800,
+      3600
+    ]
+  },
+  "lanes": [
+    {
+      "id": "COMA",
+      "label": "THE INSTITUTION LIFE"
+    },
+    {
+      "id": "AMP",
+      "label": "THE AMPUTEE LIFE"
+    },
+    {
+      "id": "PRIS",
+      "label": "THE PRISON LIFE"
+    },
+    {
+      "id": "CAMP",
+      "label": "THE CAMPUS LIFE"
+    },
+    {
+      "id": "OPEN",
+      "label": "THE OPENING LIFE"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "U1",
+      "lane": "OPEN",
+      "title": "The Opening Life — the Blackouts",
+      "body": "Evan's childhood: the blackouts, the missing hours. His mother watches him lose whole minutes he never lived.",
+      "cite": "act 1"
+    }
+  ],
+  "lanes_content": {
+    "OPEN": [
+      {
+        "node": "U1"
+      },
+      {
+        "beat": "Childhood: the knife, the mailbox firework, the film camera — the blackouts cover the wounds",
+        "cite": "act 1"
+      },
+      {
+        "beat": "Seven years later: the journals. First dive.",
+        "cite": "act 1"
+      },
+      {
+        "arc": "dive1"
+      },
+      {
+        "chip": "The Opening Life — Runs On",
+        "dim": true
+      },
+      {
+        "abandon": 110
+      }
+    ],
+    "CAMP": [
+      {
+        "mark": "dive1"
+      },
+      {
+        "beat": "Age 7 rewritten — he keeps Kayleigh from her father's camera",
+        "cite": "act 2"
+      },
+      {
+        "segment": "THE CAMPUS LIFE (fraternity, Kayleigh his girlfriend)"
+      },
+      {
+        "beat": "Tommy, unhinged, escalates — the horror finds the new world too",
+        "tone": "death",
+        "cite": "act 2"
+      },
+      {
+        "beat": "Second dive — back to age 13, the mailbox",
+        "cite": "act 2"
+      },
+      {
+        "arc": "dive2"
+      },
+      {
+        "chip": "The Campus Life — Runs On",
+        "dim": true
+      },
+      {
+        "abandon": 110
+      }
+    ],
+    "PRIS": [
+      {
+        "mark": "dive2"
+      },
+      {
+        "beat": "Age 13 rewritten — he saves Lenny's mother",
+        "cite": "act 2"
+      },
+      {
+        "segment": "THE PRISON LIFE (Tommy dead by his hand · mom's diagnosis · Kayleigh gone grey)"
+      },
+      {
+        "beat": "Third dive — to the Seventh-Sunday lunch, to fix Lenny",
+        "cite": "act 2"
+      },
+      {
+        "arc": "dive3"
+      },
+      {
+        "chip": "The Prison Life — Runs On",
+        "dim": true
+      },
+      {
+        "abandon": 110
+      }
+    ],
+    "AMP": [
+      {
+        "mark": "dive3"
+      },
+      {
+        "beat": "Age 13 rewritten again — Lenny saved, Tommy reformed, his own hands blown off",
+        "tone": "death",
+        "cite": "act 2"
+      },
+      {
+        "segment": "THE AMPUTEE LIFE (mom dies of cancer · Kayleigh with Lenny · the bathtub dive, no journal)"
+      },
+      {
+        "beat": "Fourth dive — back to the film camera, the first wound",
+        "cite": "act 3"
+      },
+      {
+        "arc": "dive4"
+      },
+      {
+        "chip": "The Amputee Life — Runs On",
+        "dim": true
+      },
+      {
+        "abandon": 110
+      }
+    ],
+    "COMA": [
+      {
+        "mark": "dive4"
+      },
+      {
+        "beat": "Age 7 rewritten — the camera is knocked away; the blast takes not his hands but the thirteen years",
+        "tone": "death",
+        "cite": "act 3"
+      },
+      {
+        "segment": "THE INSTITUTION LIFE (a mind that has never had a body to lose)"
+      },
+      {
+        "beat": "Final dive — through the home movies, out of every world",
+        "cite": "act 3"
+      },
+      {
+        "arc": "dive5"
+      },
+      {
+        "mark": "dive5"
+      },
+      {
+        "ending": {
+          "title": "Before His Own Birth",
+          "body": "The last dive goes past every journal, past every camera — out of the timeline entirely. The institution world runs on, empty of him.",
+          "cite": "act 3"
+        }
+      },
+      {
+        "chip": "The Institution Life — Runs On",
+        "dim": true
+      },
+      {
+        "abandon": 110
+      }
+    ]
+  },
+  "arcs": {
+    "dive1": {
+      "from_lane": "OPEN",
+      "to_lane": "CAMP",
+      "kind": "travel",
+      "label": "dive 1 · the journals"
+    },
+    "dive2": {
+      "from_lane": "CAMP",
+      "to_lane": "PRIS",
+      "kind": "travel",
+      "label": "dive 2"
+    },
+    "dive3": {
+      "from_lane": "PRIS",
+      "to_lane": "AMP",
+      "kind": "travel",
+      "label": "dive 3"
+    },
+    "dive4": {
+      "from_lane": "AMP",
+      "to_lane": "COMA",
+      "kind": "travel",
+      "label": "dive 4"
+    },
+    "dive5": {
+      "from_lane": "COMA",
+      "to_lane": "COMA",
+      "kind": "travel",
+      "label": "the last dive — before his own birth",
+      "side": "left"
+    }
+  },
+  "thread": [
+    "U1",
+    "ENDING"
+  ],
+  "legend": [
+    "Each dive (green arc) rewrites one life: a new lane, entered in its childhood. The horror compounds with every fix.",
+    "The abandoned lives RUN ON (grey chips) — the film shows overwrites; the chart keeps every world.",
+    "Chain grammar: no split circles — the mechanism is travel to a changed past, not a fork."
+  ]
+}

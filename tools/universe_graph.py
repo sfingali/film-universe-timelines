@@ -134,7 +134,41 @@ def validate(g):
                 fs = it[k].get("from_split")
                 if fs is not None and fs not in splits:
                     errs.append(f"{lb_lane}.laneborn: unknown from_split '{fs}'")
-    known = set(node_ids) | set(splits) | set(joins) | {"ENDING"}
+    arcs = g.get("arcs", {})
+    arc_items, mark_items = [], []
+    for lid in lane_ids:
+        for it in lc.get(lid, []):
+            k = next(iter(it))
+            if k == "arc":
+                if it[k] not in arcs: errs.append(f"{lid}: unknown arc '{it[k]}'")
+                else: arc_items.append((lid, it[k]))
+            elif k == "mark":
+                if it[k] not in arcs: errs.append(f"{lid}: unknown mark '{it[k]}' (marks belong to arcs)")
+                else: mark_items.append((lid, it[k]))
+    placed = [aid for _, aid in arc_items]
+    if len(placed) != len(set(placed)):
+        errs.append("an arc item is placed more than once (each arc has exactly one departure)")
+    for aid, a in arcs.items():
+        if a.get("from_lane") not in lane_ids:
+            errs.append(f"arcs.{aid}: unknown from_lane '{a.get('from_lane')}'")
+        if a.get("to_lane") not in lane_ids:
+            errs.append(f"arcs.{aid}: unknown to_lane '{a.get('to_lane')}'")
+        if a.get("kind") not in (None, "travel", "return", "loop"):
+            errs.append(f"arcs.{aid}: kind must be travel|return|loop")
+        if "color" in a and (not isinstance(a["color"], list) or len(a["color"]) != 3):
+            errs.append(f"arcs.{aid}: color must be [r,g,b]")
+        for flag in ("carry_through", "arrive_thread"):
+            if flag in a and not isinstance(a[flag], bool):
+                errs.append(f"arcs.{aid}: {flag} must be boolean")
+    placed_set, marked_set = set(placed), set(a for _, a in mark_items)
+    if len(mark_items) != len(marked_set):
+        errs.append("a mark is placed more than once (each arc has exactly one arrival)")
+    for aid in arcs:
+        if aid not in placed_set: errs.append(f"arcs.{aid}: never departs — place its arc item in from_lane")
+        if aid not in marked_set: errs.append(f"arcs.{aid}: never arrives — place its mark item in to_lane")
+    for _, aid in mark_items:
+        if aid not in arcs: errs.append(f"mark '{aid}' has no arc definition")
+    known = set(node_ids) | set(splits) | set(joins) | set(arcs) | {"ENDING"}
     for t in g.get("thread", []):
         if t not in known: errs.append(f"thread: unknown element '{t}'")
     return errs
@@ -169,9 +203,10 @@ def build(g, style="classic"):
 
     B = 1.35          # vertical breathing factor
     JOIN_DROP = 120   # px below the source split center for the join horizontal
-    SLOTS = dict(beat=round(40*B), segment=round(54*B), chip=round(46*B),
+    SLOTS = dict(beat=round(56*B), segment=round(70*B), chip=round(66*B),
                  split=round(132*B), join_after=round(118*B),
-                 laneborn=round(116*B), node_gap=round(26*B), stub_gap=round(16*B)+10,
+                 laneborn=round(150*B), node_gap=round(26*B), stub_gap=round(16*B)+10,
+                 arc=round(70*B), mark=round(60*B),
                  ending_gap=round(30*B), abandon_gap=round(26*B))
 
     def measure(kind, v, lid):
@@ -190,6 +225,40 @@ def build(g, style="classic"):
             return 660, 12+28+22*len(lines)+(22 if v.get("cite") else 0)+12
         return 0, 0
 
+    def q_extent_any(q):
+        """visual x-extent + y-extent of a placed item (build scope — used by arc routing)"""
+        k2 = q["kind"]; qx, ql = q["cx"], q["w"]
+        if k2 == "node":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
+        if k2 == "stub":    return (qx, qx+ql, q["y"], q["y"]+q["h"])
+        if k2 == "ending":  return (qx, qx+ql, q["y"], q["y"]+q["h"])
+        if k2 == "split":
+            sl2 = g["splits"][q["v"]]
+            return (qx-30, qx+44+tw(sl2["caption"].split("\n")[0], f_cap),
+                    q["y"]-30, q["y"]+30)
+        if k2 == "chip":
+            cv = q["v"] if isinstance(q["v"], dict) else {"chip": q["v"]}
+            clines = wrap(tc(cv["chip"]), f_chip, LANE_W-30)
+            return (qx+16, qx+16+max(tw(l, f_chip) for l in clines)+20, q["y"], q["y"]+30*len(clines))
+        if k2 == "segment":
+            tv = q["v"] if isinstance(q["v"], str) else q["v"].get("segment","")
+            slines = wrap(tc(tv), f_seg, LANE_W-30)
+            return (qx+16, qx+16+max(tw(l, f_seg) for l in slines)+20, q["y"], q["y"]+30*len(slines))
+        if k2 == "beat":
+            bv = q["v"] if isinstance(q["v"], dict) else {"beat": q["v"]}
+            txt2 = bv["beat"]+(f" ({bv['cite']})" if bv.get("cite") else "")
+            blines = wrap(tc(txt2), f_beat, LANE_W-40)
+            return (qx+16, qx+16+max(tw(l, f_beat) for l in blines), q["y"], q["y"]+20*len(blines)+6)
+        if k2 == "laneborn":
+            nb2 = q["v"]
+            nlines = wrap(tc(nb2["chip"]), f_chip, LANE_W-40)
+            hh = 30*len(nlines)
+            if nb2.get("note"):
+                hh += 24*len(wrap(tc(nb2["note"]), f_note, LANE_W-40)) + 8
+            return (qx+16, qx+16+max(tw(l, f_chip) for l in nlines)+20, q["y"], q["y"]+hh)
+        if k2 in ("arc", "mark"):
+            return (qx-9, qx+9, q["y"]-9, q["y"]+9)
+        return (qx-3, qx+3, q["y"], q["y"]+(q["h"] or 0))   # abandon tail
+
     # -------- fixed-point restack --------
     prev_key = None
     prev_splits = {}          # split id -> cy from the PREVIOUS pass (first pass: none)
@@ -197,6 +266,8 @@ def build(g, style="classic"):
         lane_y = {lid: Y_TOP for lid in lane_ids}
         P = []
         split_pos = {}          # split id -> (lane, cx, cy) THIS pass
+        arc_pos = {}            # arc id -> (lane, cx, cy) departure point
+        mark_pos = {}           # arc id -> (lane, cx, cy) arrival point
         for lid in lane_ids:
             for it in raw[lid]:
                 k = next(iter(it)); v = it[k]; cx = X[lid]
@@ -232,6 +303,8 @@ def build(g, style="classic"):
                             return (qx+16, qx+16+tw(txt2, f_beat), q["y"], q["y"]+34)
                         if k2 == "laneborn":
                             return (qx+16, qx+16+min(560, LANE_W-40)+30, q["y"], q["y"]+96)
+                        if k2 in ("arc", "mark"):
+                            return (qx-9, qx+9, q["y"]-9, q["y"]+9)
                         return (qx-3, qx+3, q["y"], q["y"]+(q["h"] or 0))   # abandon tail
                     changed = True
                     while changed:
@@ -266,18 +339,26 @@ def build(g, style="classic"):
                 elif k == "stub":
                     w,h = measure("stub", v, lid)
                     sv = stubs[v] if isinstance(v, str) else v
-                    P.append(dict(kind="stub", v=sv, lane=lid, cx=cx+92, y=lane_y[lid], w=w, h=h, ref=v))
+                    P.append(dict(kind="stub", v=sv, lane=lid, cx=min(cx+92, W-410), y=lane_y[lid], w=w, h=h, ref=v))
                     lane_y[lid] += max(h,70) + SLOTS["stub_gap"]
                 elif k == "laneborn":
                     P.append(dict(kind="laneborn", v=v, lane=lid, cx=cx, y=lane_y[lid]+6, w=0, h=0))
                     lane_y[lid] += SLOTS["laneborn"]
+                elif k == "arc":
+                    P.append(dict(kind="arc", v=v, lane=lid, cx=cx, y=lane_y[lid]+14, w=0, h=0))
+                    arc_pos[v] = (lid, cx, lane_y[lid]+14)
+                    lane_y[lid] += SLOTS["arc"]
+                elif k == "mark":
+                    P.append(dict(kind="mark", v=v, lane=lid, cx=cx, y=lane_y[lid]+14, w=0, h=0))
+                    mark_pos[v] = (lid, cx, lane_y[lid]+14)
+                    lane_y[lid] += SLOTS["mark"]
                 elif k == "abandon":
                     amt = max(60, min(int(v), 320))
                     P.append(dict(kind="abandon", v=amt, lane=lid, cx=cx, y=lane_y[lid], w=0, h=amt))
                     lane_y[lid] += amt + SLOTS["abandon_gap"]
                 elif k == "ending":
                     w,h = measure("ending", v, lid)
-                    P.append(dict(kind="ending", v=v, lane=lid, cx=cx-220, y=lane_y[lid], w=w, h=h))
+                    P.append(dict(kind="ending", v=v, lane=lid, cx=max(40, cx-220), y=lane_y[lid], w=w, h=h))
                     lane_y[lid] += h + SLOTS["ending_gap"]
         prev_splits = dict(split_pos)   # carry into next pass for cross-lane anchoring
         key = tuple((p["kind"], p["lane"], p["y"]) for p in P)
@@ -319,12 +400,19 @@ def build(g, style="classic"):
     if isinstance(_ov.get("split"), dict):
         _so = _ov["split"]
         S_FILL = tuple(_so.get("color", YELLOW)); S_EDGE = tuple(_so.get("edge", YE)); S_TEXT = tuple(_so.get("text", YTXT))
+    LOOPC = LANE
+    if isinstance(_ov.get("loop"), dict) and "color" in _ov["loop"]:
+        LOOPC = tuple(_ov["loop"]["color"])
     _WSTYLE = {"classic": {},
                "weight": {"thread": 11, "lane": 6, "pre": 6, "death": 2, "join": 11},
                "dash":   {"thread": 7,  "lane": 5, "pre": 5, "death": 4, "join": 7},
                "tape":   {"thread": 10, "lane": 8, "pre": 8, "abandon": 5, "death": 8, "join": 10}}
     for _k, _v in _WSTYLE.get(style, {}).items():
         nt[_k]["weight"] = _v
+    for _k in ("thread", "lane", "pre", "abandon", "join"):   # per-film colour/weight overrides
+        if isinstance(_ov.get(_k), dict):
+            if "color" in _ov[_k]: nt[_k]["color"] = tuple(_ov[_k]["color"])
+            if "weight" in _ov[_k]: nt[_k]["weight"] = int(_ov[_k]["weight"])
 
     def stroke(pts, color, width, st="solid", dash=22):
         if st=="solid":
@@ -443,6 +531,22 @@ def build(g, style="classic"):
                 if carry_from is not None:
                     seg([(X[lid], carry_from), (X[lid], p["y"])], "thread")
                 carry_from = None
+            elif kind == "arc":
+                # traveller departs: thread stops here (resumes at the mark)
+                a_def = g.get("arcs", {}).get(v, {})
+                if carry_from is not None and a_def.get("carry_through", True):
+                    seg([(X[lid], carry_from), (X[lid], p["y"])], "thread")
+                    carry_from = None
+                elif not a_def.get("carry_through", True):
+                    pass                        # another traveller's arc: thread ignores it
+                else:
+                    carry_from = None
+            elif kind == "mark":
+                # traveller arrives: thread resumes at the dot
+                a_def = g.get("arcs", {}).get(v, {})
+                if a_def.get("arrive_thread", True):
+                    carry_from = p["y"]
+                # else: someone else's arrival — our thread is unaffected
         if carry_from is not None:
             last_bottom = Y_TOP
             for p in its:
@@ -460,6 +564,98 @@ def build(g, style="classic"):
                     if q["kind"]=="split" and q["y"] < p["y"]: prev_split = q
                 if prev_split:
                     seg([(prev_split["cx"]+22, prev_split["y"]+22), (p["cx"]-8, p["y"]+40)], "death")
+
+    # ---------- time-travel arcs (travel / return / loop) ----------
+    def _hseg_dodge(y, x_lo, x_hi, exclude=()):
+        """push a horizontal run down until it clears placed items"""
+        for _ in range(6):
+            hit = None
+            for q in P:
+                if q["kind"] in ("join","arc","mark") or q["lane"] in exclude: continue
+                qx0, qx1, qy0, qy1 = q_extent_any(q)
+                if qx1 < x_lo or qx0 > x_hi: continue
+                if qy0-14 <= y <= qy1+14:
+                    hit = qy1 + 24
+            if hit is None: break
+            y = hit
+        return y
+
+    for aid, a in g.get("arcs", {}).items():
+        if aid not in arc_pos or aid not in mark_pos: continue
+        (fl, fx, fy) = arc_pos[aid]
+        (tl, tx, ty) = mark_pos[aid]
+        kind = a.get("kind", "travel")
+        acol = tuple(a["color"]) if "color" in a else (
+               nt["thread"]["color"] if kind == "travel" else (
+               LOOPC if kind == "loop" else GREY))
+        awd  = 7 if kind != "loop" else 5
+        label = tc(a.get("label", ""))
+        lw_ = tw(label, f_cap)
+
+        def _label_clear(lx, ly):
+            """push a label up/down until its box hits nothing"""
+            for _ in range(12):
+                box = (lx-4, lx+lw_+4, ly-8, ly+14)
+                hit = False
+                for q in P:
+                    if q["kind"] in ("join","arc","mark"): continue
+                    qx0, qx1, qy0, qy1 = q_extent_any(q)
+                    if not (qx1 < box[0] or qx0 > box[1] or qy1 < box[2] or qy0 > box[3]):
+                        hit = True; break
+                if not hit: return ly
+                ly += 22
+            return ly
+
+        if tl == fl:
+            # self-lane loop: bulge sideways
+            side = a.get("side") or "right"
+            if side == "left" and fx - 220 < 10: side = "right"   # don't bulge off-canvas
+            sgn = 1 if side == "right" else -1
+            bx = fx + sgn*180
+            for _ in range(6):   # push bulge clear of every item box it would cross
+                clash = False
+                for q in P:
+                    if q["kind"] in ("join","arc","mark"): continue
+                    qx0, qx1, qy0, qy1 = q_extent_any(q)
+                    if not (qx1 < min(fx,bx)-6 or qx0 > max(fx,bx)+6 or
+                            qy1 < min(fy,ty)-8 or qy0 > max(fy,ty)+8):
+                        clash = True; break
+                if not clash: break
+                bx += sgn*34
+            fy2 = _hseg_dodge(fy, min(fx,bx), max(fx,bx))
+            ty2 = _hseg_dodge(ty, min(tx,bx), max(tx,bx))
+            pts = [(fx, fy), (fx, fy2), (bx, fy2), (bx, ty2), (tx, ty2)]
+            stroke(pts, acol, awd)
+            head((tx, ty2), (bx, ty2), acol)
+            d.ellipse((fx-9,fy-9,fx+9,fy+9), fill=(255,255,255), outline=acol, width=4)
+            d.ellipse((tx-7,ty-7,tx+7,ty+7), fill=acol, outline=(255,255,255), width=3)
+            lx = bx + sgn*16 if side == "right" else bx - 16 - lw_
+            ly = _label_clear(lx, (fy2+ty2)/2 - 8)
+            d.text((lx, ly), label, font=f_cap, fill=acol if kind!="loop" else GREY)
+        else:
+            # cross-lane: out vertical, across, in
+            side = a.get("side") or ("left" if tx < fx else "right")
+            sgn = -1 if side == "left" else 1
+            ox = min(fx,tx) - 56 if side == "left" else max(fx,tx) + 56
+            for _ in range(4):   # vertical corridor: push outward past items
+                clash = False
+                for q in P:
+                    if q["kind"] in ("join","arc","mark"): continue
+                    qx0, qx1, qy0, qy1 = q_extent_any(q)
+                    if qx0-6 <= ox <= qx1+6 and not (qy1 < min(fy,ty) or qy0 > max(fy,ty)):
+                        clash = True
+                if not clash: break
+                ox += sgn*34
+            fy2 = _hseg_dodge(fy, min(fx,ox), max(fx,ox))
+            ty2 = _hseg_dodge(ty, min(tx,ox), max(tx,ox))
+            pts = [(fx, fy), (fx, fy2), (ox, fy2), (ox, ty2), (tx, ty2)]
+            stroke(pts, acol, awd)
+            head((tx, ty2), (ox, ty2), acol)
+            d.ellipse((fx-9,fy-9,fx+9,fy+9), fill=(255,255,255), outline=acol, width=4)
+            d.ellipse((tx-7,ty-7,tx+7,ty+7), fill=acol, outline=(255,255,255), width=3)
+            lx = ox + 16 if side == "right" else ox - 16 - lw_
+            ly = _label_clear(lx, (fy2+ty2)/2 - 8)
+            d.text((lx, ly), label, font=f_cap, fill=acol if kind!="loop" else GREY)
 
     # ---------- markers / boxes / text ----------
     for p in P:
@@ -490,8 +686,11 @@ def build(g, style="classic"):
             d.ellipse((cx-r,y-r,cx+r,y+r), fill=S_FILL, outline=S_EDGE, width=4)
             letter=sl["letter"]
             d.text((cx-tw(letter,f_big)/2, y-18), letter, font=f_big, fill=S_TEXT)
-            for i,cl in enumerate(sl["caption"].split("\n")):
-                d.text((cx+44, y-12+i*24), tc(cl), font=f_cap, fill=GREY)
+            cap_lines = []
+            for part in sl["caption"].split("\n"):
+                cap_lines += wrap(tc(part), f_cap, max(200, W-80-(cx+44)))
+            for i,cl in enumerate(cap_lines):
+                d.text((cx+44, y-12+i*24), cl, font=f_cap, fill=GREY)
         elif kind=="join":
             j = g["joins"][v]
             d.ellipse((cx-13, y-13, cx+13, y+13), fill=nt["join"]["color"], outline=(255,255,255), width=3)
@@ -511,30 +710,39 @@ def build(g, style="classic"):
             d.ellipse((cx-5,y-5,cx+5,y+5), fill=col)
             txt=v["beat"]+(f" ({v['cite']})" if v.get("cite") else "")
             txt = tc(txt)
-            if side=="right": d.text((cx+16,y-10), txt, font=f_beat, fill=col)
-            else: d.text((cx-16-tw(txt,f_beat), y-10), txt, font=f_beat, fill=col)
+            blines = wrap(txt, f_beat, LANE_W-40)
+            for i,bline in enumerate(blines):
+                if side=="right": d.text((cx+16, y-10+i*20), bline, font=f_beat, fill=col)
+                else: d.text((cx-16-tw(bline,f_beat), y-10+i*20), bline, font=f_beat, fill=col)
         elif kind=="chip":
             if isinstance(v,str): v={"chip":v}
             fill=CHDIM if v.get("dim") else CH
             chip_txt = tc(v["chip"])
-            wid=int(tw(chip_txt,f_chip))+20
-            d.rounded_rectangle((cx+16,y,cx+16+wid,y+28), radius=6, fill=fill)
-            d.text((cx+26,y+4), chip_txt, font=f_chip, fill=(255,255,255))
+            clines = wrap(chip_txt, f_chip, LANE_W-30)
+            wid=int(max(tw(l,f_chip) for l in clines))+20
+            d.rounded_rectangle((cx+16,y,cx+16+wid,y+30*len(clines)), radius=6, fill=fill)
+            for i,cline in enumerate(clines):
+                d.text((cx+26,y+4+i*30), cline, font=f_chip, fill=(255,255,255))
         elif kind=="segment":
             txt=v if isinstance(v,str) else v.get("segment","")
             txt = tc(txt)
-            wid=int(tw(txt,f_seg))+20
-            d.rounded_rectangle((cx+16,y,cx+16+wid,y+28), radius=6, fill=SEGF)
-            d.text((cx+26,y+5), txt, font=f_seg, fill=(255,255,255))
+            slines2 = wrap(txt, f_seg, LANE_W-30)
+            wid=int(max(tw(l,f_seg) for l in slines2))+20
+            d.rounded_rectangle((cx+16,y,cx+16+wid,y+30*len(slines2)), radius=6, fill=SEGF)
+            for i,sline in enumerate(slines2):
+                d.text((cx+26,y+5+i*30), sline, font=f_seg, fill=(255,255,255))
         elif kind=="laneborn":
             nb=v
             chip_txt = tc(nb["chip"])
-            wid=int(tw(chip_txt,f_chip))+20
-            d.rounded_rectangle((cx+16,y,cx+16+wid,y+28), radius=6, fill=CHDIM)
-            d.text((cx+26,y+4), chip_txt, font=f_chip, fill=(255,255,255))
+            nlines = wrap(chip_txt, f_chip, LANE_W-40)
+            wid=int(max(tw(l,f_chip) for l in nlines))+20
+            d.rounded_rectangle((cx+16,y,cx+16+wid,y+30*len(nlines)), radius=6, fill=CHDIM)
+            for i,nline in enumerate(nlines):
+                d.text((cx+26,y+4+i*30), nline, font=f_chip, fill=(255,255,255))
             if nb.get("note"):
+                ny = y + 30*len(nlines) + 8
                 for i,t in enumerate(wrap(tc(nb["note"]), f_note, LANE_W-40)):
-                    d.text((cx+16, y+40+i*24), t, font=f_note, fill=GREY)
+                    d.text((cx+16, ny+i*24), t, font=f_note, fill=GREY)
 
     # ---------- legend follows content ----------
     ry = y_bot + 60

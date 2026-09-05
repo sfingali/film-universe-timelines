@@ -1,0 +1,49 @@
+{
+  "_doc": "GROUNDHOG DAY — the loop inversion: a REAL reset, no branches. One lane; the loop chip says the day re-runs; the chart deliberately refuses to fake universes.",
+  "meta": {
+    "title": "GROUNDHOG DAY — One Day, Every Day",
+    "subtitle": "One universe · one lane · the day itself re-runs · no splits, no branches",
+    "thread_label": "THE THREAD: ONE LANE — PHIL CONNORS, FEBRUARY 2, INDEFINITELY",
+    "footer": "Test film 1 of 4 — the ontology where the loop is real. Compiled from the 1993 screenplay.",
+    "canvas": [2800, 3400],
+    "node_types": {
+      "loop": {"color": [166, 108, 32]}
+    }
+  },
+  "lanes": [{"id": "PUNX", "label": "PUNXSUTAWNEY"}],
+  "nodes": [{
+    "id": "U1",
+    "lane": "PUNX",
+    "title": "PUNXSUTAWNEY — February 2",
+    "body": "Phil Connors arrives to cover the groundhog. Snowed in. The radio wakes him at 6:00 — Sonny & Cher, 'I Got You Babe.' It is still February 2.",
+    "cite": "act 1"
+  }],
+  "lanes_content": {
+    "PUNX": [
+      {"node": "U1"},
+      {"beat": "First loop — no ticket, no footprint", "cite": "act 2"},
+      {"segment": "THE LOOPS BEGIN (unnumbered — the film counts in years)"},
+      {"arc": "l1"}, {"mark": "l1"},
+      {"beat": "Punching the stranger · 'I got shot' · suicides (grey loops)", "tone": "death", "cite": "act 2"},
+      {"arc": "l2"}, {"mark": "l2"},
+      {"segment": "THE CRAFTING (piano, ice-sculpture, French poetry, medicine)"},
+      {"arc": "l3"}, {"mark": "l3"},
+      {"segment": "THE ONE PERFECT DAY"},
+      {"beat": "Buys the Girl Scouts cocoa · saves the falling boy · Ned's apology · plays Rachmaninoff for the town", "cite": "act 3"},
+      {"beat": "'Something is different.' 'Anything different?' 'Anything.'", "cite": "act 3"},
+      {"ending": {"title": "February 3", "body": "He wakes beside Rita. The day moves. The loop was the lesson.", "cite": "act 3"}},
+      {"abandon": 120}
+    ]
+  },
+  "arcs": {
+    "l1": {"from_lane": "PUNX", "to_lane": "PUNX", "kind": "loop", "label": "again"},
+    "l2": {"from_lane": "PUNX", "to_lane": "PUNX", "kind": "loop", "label": "again"},
+    "l3": {"from_lane": "PUNX", "to_lane": "PUNX", "kind": "loop", "label": "again"}
+  },
+  "thread": ["U1", "ENDING"],
+  "legend": [
+    "This chart has NO universes: in this ontology the loop is a real reset — the world re-runs, it does not branch.",
+    "Loop arcs (brown) mark where the day snaps back to 6:00. The past is not visited; it is repeated.",
+    "Contrast: a split-grammar film (The Butterfly Effect) draws a new lane per rewritten life. Here, one lane."
+  ]
+}

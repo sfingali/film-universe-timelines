@@ -1,0 +1,168 @@
+{
+  "_doc": "BACK TO THE FUTURE PART II — overwrite + true branch. The main 1985A line is ONE lane overwritten in place (each revision an arc on the same lane); alt-1985 is the only genuinely new world (a separate lane). Old Biff's trip is drawn in his own colour and does NOT carry Marty's thread.",
+  "meta": {
+    "title": "Back to the Future Part II — The Overwritten Line",
+    "subtitle": "One history, revised in place · alt-1985 is the branch that really exists · grey = other travellers",
+    "thread_label": "THE THREAD: 1985 → 2015 → 1985A → 1955 — STRANDED",
+    "footer": "Test film 2 of 4 — overwrite grammar. Cites = film beats.",
+    "canvas": [
+      2800,
+      3200
+    ],
+    "node_types": {
+      "thread": {
+        "color": [
+          38,
+          118,
+          62
+        ]
+      },
+      "death": {
+        "color": [
+          120,
+          120,
+          126
+        ]
+      }
+    }
+  },
+  "lanes": [
+    {
+      "id": "L1955B",
+      "label": "1955 (second visit)"
+    },
+    {
+      "id": "M1985",
+      "label": "HILL VALLEY — MAIN LINE"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "U1",
+      "lane": "M1985",
+      "title": "1985 — The Ordinary Line",
+      "body": "Marty, Doc, Jennifer, and the DeLorean — the morning after the first film.",
+      "cite": "opening"
+    }
+  ],
+  "lanes_content": {
+    "M1985": [
+      {
+        "node": "U1"
+      },
+      {
+        "beat": "Doc returns from the future — 'something has got to be done about your kids'",
+        "cite": "act 1"
+      },
+      {
+        "arc": "m1"
+      },
+      {
+        "mark": "m1"
+      },
+      {
+        "segment": "The revised 1985 (after 2015)"
+      },
+      {
+        "beat": "Old Biff steals the DeLorean in 2015 — his grey arc fires the overwrite from 1955",
+        "tone": "death",
+        "cite": "act 2"
+      },
+      {
+        "mark": "ob"
+      },
+      {
+        "segment": "1985A — Hell Valley (the overwritten present)"
+      },
+      {
+        "beat": "George shot in 1975 · Biff owns the town · Lorraine his wife · Marty's life unmade",
+        "tone": "death",
+        "cite": "act 2"
+      },
+      {
+        "beat": "Doc deciphers it: the Sports Almanac — the overwrite's root is 1955",
+        "cite": "act 2"
+      },
+      {
+        "arc": "m3"
+      },
+      {
+        "chip": "The main line — Runs On",
+        "dim": true
+      },
+      {
+        "abandon": 150
+      }
+    ],
+    "L1955B": [
+      {
+        "laneborn": {
+          "from_split": null,
+          "chip": "1955 — Already Running",
+          "note": "the second visit happens inside the FIRST film's 1955 — overlapping, not branching"
+        }
+      },
+      {
+        "arc": "ob"
+      },
+      {
+        "mark": "m3"
+      },
+      {
+        "beat": "1955, two teams: young Biff takes the Almanac · Marty & Doc intercept and burn it — the line heals as they watch",
+        "cite": "act 3"
+      },
+      {
+        "beat": "The DeLorean struck by lightning — Doc thrown to 1885; the Western Union letter",
+        "tone": "death",
+        "cite": "act 3"
+      },
+      {
+        "ending": {
+          "title": "Part II Ends in 1955",
+          "body": "Marty stranded: Doc in 1885, the DeLorean gone. The restored 1985 return is Part III's business.",
+          "cite": "act 3"
+        }
+      },
+      {
+        "abandon": 130
+      }
+    ]
+  },
+  "arcs": {
+    "m1": {
+      "from_lane": "M1985",
+      "to_lane": "M1985",
+      "kind": "travel",
+      "label": "to 2015 and back — the kids fixed"
+    },
+    "ob": {
+      "from_lane": "L1955B",
+      "to_lane": "M1985",
+      "kind": "travel",
+      "label": "old Biff gives young Biff the Almanac (1955) — returns to 2015, fades",
+      "color": [
+        120,
+        120,
+        126
+      ],
+      "carry_through": false,
+      "arrive_thread": false
+    },
+    "m3": {
+      "from_lane": "M1985",
+      "to_lane": "L1955B",
+      "kind": "travel",
+      "label": "Marty & Doc to 1955 — intercept the Almanac"
+    }
+  },
+  "thread": [
+    "U1",
+    "ENDING"
+  ],
+  "legend": [
+    "Green arcs on the main line = Marty & Doc revising ONE history in place (2015, 1985A, 1955).",
+    "Grey arc = old Biff, a different traveller — his act rewrites the line but is not the film's path.",
+    "1955 appears once as its own lane: the two visits overlap inside the same year. Part II ends stranded in 1955."
+  ]
+}

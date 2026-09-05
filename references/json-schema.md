@@ -50,6 +50,22 @@ The JSON is the story. The engine validates then renders. Version: v4 engine.
   "stubs":  { "stub-10": {"title": "10B — He Dies", "sub": "the tine where he dies at split #10"} },
   "joins":  { "join-78": {"from_split": "10", "to_lane": "HER",
                            "side": "left", "label": "he enters HER"} },
+  "arcs":   {                            // TIME-TRAVEL ARCS: a trip within/into worlds,
+    "trip1": {                           // NOT a new universe. Use for films whose
+      "from_lane": "OPEN",               // grammar is overwrites, loops, channels.
+      "to_lane": "M1985",
+      "kind": "travel",                  // travel (thread-colour) | return (grey) | loop (lane-colour)
+      "label": "to 2015 and back",
+      "side": "right",                   // which way the elbow bulges (auto-defaulted)
+      "color": [120,120,126],            // optional per-arc colour (e.g. another traveller)
+      "carry_through": false,            // false = another character's trip: the thread IGNORES it
+      "arrive_thread": false             // false = its arrival doesn't resume the thread
+    }
+  },
+  // lanes_content items for arcs:
+  //   {"arc": "trip1"}  = the DEPARTURE dot (place in from_lane, at its story position)
+  //   {"mark": "trip1"} = the ARRIVAL dot (place in to_lane, at its story position)
+  // each arc needs exactly one of each; validator enforces it.
   "thread": ["U1", "join-78", "ENDING"],   // ordered route; ids must resolve;
                                            // 'ENDING' is a literal
   "legend": ["line one", "line two"]       // 'The Index / How to Read' box
@@ -63,6 +79,8 @@ The JSON is the story. The engine validates then renders. Version: v4 engine.
   `to_lane`
 - `joins.*.from_split` must exist; `to_lane` must be a real lane
 - every `thread` element must be a known node/split/join id or `ENDING`
+- each arc: exactly one `arc` item in from_lane + one `mark` item in to_lane;
+  kind travel|return|loop; color [r,g,b]; carry_through/arrive_thread boolean
 - unknown lanes in `lanes_content` fail
 
 ## Optional items
