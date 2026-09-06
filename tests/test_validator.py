@@ -123,7 +123,10 @@ def deep_copy(g):
 
 def main():
     failures = 0
-    out = os.path.join(tempfile.gettempdir(), "ug-test-out.png")
+    # Isolated per-run temp dir: a fixed tempfile path caused parallel-run
+    # collisions and a stale PNG from a prior exit-0 negative to fool later tests.
+    tmpdir = tempfile.mkdtemp(prefix="ug-test-")
+    out = os.path.join(tmpdir, "out.png")
 
     # sanity: the good graph must render
     rc, msg = run_engine(deep_copy(GOOD), out)
@@ -134,7 +137,7 @@ def main():
     os.unlink(out)
     print("ok  good graph renders")
 
-    # every lie must exit 2
+    # every lie must exit 2 (a crash / traceback / other exit is NOT a pass)
     for name, mutate in LIES.items():
         g = deep_copy(GOOD)
         key1, key2, fn = mutate
@@ -148,12 +151,16 @@ def main():
         if rc == 0:
             print(f"FAIL  {name}: lie rendered (exit 0)")
             failures += 1
+        elif rc != 2:
+            print(f"FAIL  {name}: wrong exit {rc} (must be 2 for a diagnostic)")
+            print("      " + msg[:200])
+            failures += 1
         elif os.path.exists(out):
-            print(f"FAIL  {name}: exit {rc} but PNG exists")
+            print(f"FAIL  {name}: exit 2 but PNG exists")
             os.unlink(out)
             failures += 1
         else:
-            print(f"ok  {name}: refused (exit {rc})")
+            print(f"ok  {name}: refused (exit 2)")
 
     # arc lies: each must exit 2
     for name, (how, aid) in ARC_LIES.items():
@@ -171,12 +178,16 @@ def main():
         if rc == 0:
             print(f"FAIL  {name}: lie rendered (exit 0)")
             failures += 1
+        elif rc != 2:
+            print(f"FAIL  {name}: wrong exit {rc} (must be 2)")
+            print("      " + msg[:200])
+            failures += 1
         elif os.path.exists(out):
-            print(f"FAIL  {name}: exit {rc} but PNG exists")
+            print(f"FAIL  {name}: exit 2 but PNG exists")
             os.unlink(out)
             failures += 1
         else:
-            print(f"ok  {name}: refused (exit {rc})")
+            print(f"ok  {name}: refused (exit 2)")
 
     # sanity: a well-formed arc chart must render
     rc, msg = run_engine(with_arc(GOOD), out)
@@ -195,12 +206,16 @@ def main():
         if rc == 0:
             print(f"FAIL  {mode}: lie rendered (exit 0)")
             failures += 1
+        elif rc != 2:
+            print(f"FAIL  {mode}: wrong exit {rc} (must be 2)")
+            print("      " + msg[:200])
+            failures += 1
         elif os.path.exists(out):
-            print(f"FAIL  {mode}: exit {rc} but PNG exists")
+            print(f"FAIL  {mode}: exit 2 but PNG exists")
             os.unlink(out)
             failures += 1
         else:
-            print(f"ok  {mode}: refused (exit {rc})")
+            print(f"ok  {mode}: refused (exit 2)")
 
     # sanity: a well-formed graph using every pass2a field must still render
     rc, msg = run_engine(with_pass2a_good(GOOD), out)
