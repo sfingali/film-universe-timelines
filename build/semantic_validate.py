@@ -42,7 +42,9 @@ def profile(doc):
 
 def validate_semantics(doc):
     global DIAG
-    DIAG = []
+    # Do NOT reset DIAG here. main() may have already appended structural (E001)
+    # diagnostics from the JSON-Schema phase; resetting to [] would ERASE them and
+    # let a schema-invalid document exit 0. Preserve anything already collected.
     prof_name, prof = profile(doc)
     declaration = prof.get("declaration", "declared" if prof_name != "P4" else "undeclared")
 
@@ -339,7 +341,16 @@ def main():
     if not args:
         print("usage: semantic_validate.py DOC.json [--schema build/schema_v2.json]")
         return 2
-    doc = json.load(open(args[0]))
+    try:
+        with open(args[0]) as f:
+            doc = json.load(f)
+    except (OSError, ValueError) as e:
+        # Missing/unparseable doc is a diagnostic (exit 2), never a traceback (exit 1).
+        err("E002", "/", f"cannot read document: {e}")
+        for d in DIAG:
+            print(f"{d['code']} {d['path']}: {d['message']}")
+        print(f"-- {len(DIAG)} diagnostic(s)")
+        return 2
     # Phase 1: JSON Schema (if available)
     schema_path = None
     argv = sys.argv[1:]
@@ -352,13 +363,16 @@ def main():
     if schema_path and os.path.exists(schema_path):
         try:
             import jsonschema
+        except ImportError:
+            # Structural validation dependency missing is a diagnostic, not a skip:
+            # fail closed so a schema-invalid document cannot silently pass.
+            err("E003", "/", "structural validation unavailable: jsonschema is not installed.")
+        else:
             schema = json.load(open(schema_path))
             v = jsonschema.Draft202012Validator(schema)
             sch_errs = sorted(v.iter_errors(doc), key=lambda e: str(list(e.absolute_path)))
             for e in sch_errs:
                 err("E001", "/" + "/".join(str(x) for x in list(e.absolute_path)), e.message[:200])
-        except ImportError:
-            print("WARNING: jsonschema not installed; skipping structural phase", file=sys.stderr)
     # Phase 2: semantics
     validate_semantics(doc)
     for d in DIAG:
