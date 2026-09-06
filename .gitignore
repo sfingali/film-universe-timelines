@@ -8,6 +8,3 @@ fix-batches/
 
 # review artifacts
 build/_tmp_summarize.py
-
-# review artifacts
-build/astra-review-2026-09-06.md
